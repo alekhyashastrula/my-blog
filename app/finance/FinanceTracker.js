@@ -4,16 +4,16 @@ import { useState, useEffect } from 'react';
 import Papa from 'papaparse';
 
 const DEFAULT_CATEGORIES = [
-  { name: 'Rent / Housing', type: 'mandatory', budget: 0 },
-  { name: 'Food & Groceries', type: 'mandatory', budget: 0 },
-  { name: 'Transportation', type: 'mandatory', budget: 0 },
-  { name: 'Utilities & Bills', type: 'mandatory', budget: 0 },
-  { name: 'Healthcare', type: 'mandatory', budget: 0 },
-  { name: 'Entertainment', type: 'unnecessary', budget: 0 },
-  { name: 'Shopping', type: 'unnecessary', budget: 0 },
-  { name: 'Dining Out', type: 'unnecessary', budget: 0 },
-  { name: 'Subscriptions', type: 'unnecessary', budget: 0 },
-  { name: 'Other', type: 'unnecessary', budget: 0 },
+  { name: 'Rent / Housing', type: 'mandatory' },
+  { name: 'Food & Groceries', type: 'mandatory' },
+  { name: 'Transportation', type: 'mandatory' },
+  { name: 'Utilities & Bills', type: 'mandatory' },
+  { name: 'Healthcare', type: 'mandatory' },
+  { name: 'Entertainment', type: 'unnecessary' },
+  { name: 'Shopping', type: 'unnecessary' },
+  { name: 'Dining Out', type: 'unnecessary' },
+  { name: 'Subscriptions', type: 'unnecessary' },
+  { name: 'Other', type: 'unnecessary' },
 ];
 
 function maskAccount(str) {
@@ -32,11 +32,10 @@ function daysDiff(dateStr) {
   return Math.ceil((d - now) / (1000 * 60 * 60 * 24));
 }
 
-// Display any date string as DD/MM/YYYY
 function formatDate(dateStr) {
   if (!dateStr) return '';
   const d = new Date(dateStr);
-  if (isNaN(d)) return dateStr; // fallback to raw if unparseable
+  if (isNaN(d)) return dateStr;
   const dd = String(d.getDate()).padStart(2, '0');
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const yyyy = d.getFullYear();
@@ -47,25 +46,20 @@ export default function FinanceTracker() {
   const [transactions, setTransactions] = useState([]);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [budgets, setBudgets] = useState({});
-
-  // Notes state
   const [notes, setNotes] = useState([]);
   const [newNote, setNewNote] = useState('');
-
-  // Reminders state
   const [reminders, setReminders] = useState([]);
   const [newReminder, setNewReminder] = useState({ title: '', date: today(), amount: '' });
 
-  // Load from localStorage
   useEffect(() => {
-    const saved = localStorage.getItem('finance_transactions');
-    const savedBudgets = localStorage.getItem('finance_budgets');
-    const savedNotes = localStorage.getItem('finance_notes');
-    const savedReminders = localStorage.getItem('finance_reminders');
-    if (saved) setTransactions(JSON.parse(saved));
-    if (savedBudgets) setBudgets(JSON.parse(savedBudgets));
-    if (savedNotes) setNotes(JSON.parse(savedNotes));
-    if (savedReminders) setReminders(JSON.parse(savedReminders));
+    const t = localStorage.getItem('finance_transactions');
+    const b = localStorage.getItem('finance_budgets');
+    const n = localStorage.getItem('finance_notes');
+    const r = localStorage.getItem('finance_reminders');
+    if (t) setTransactions(JSON.parse(t));
+    if (b) setBudgets(JSON.parse(b));
+    if (n) setNotes(JSON.parse(n));
+    if (r) setReminders(JSON.parse(r));
   }, []);
 
   useEffect(() => { localStorage.setItem('finance_transactions', JSON.stringify(transactions)); }, [transactions]);
@@ -85,15 +79,13 @@ export default function FinanceTracker() {
           const dateKey = keys.find(k => /date/i.test(k));
           const descKey = keys.find(k => /desc|narration|particular|detail|memo/i.test(k));
           const amountKey = keys.find(k => /amount|debit|withdrawal/i.test(k));
-          const rawAmount = row[amountKey] || '0';
-          const amount = parseFloat(rawAmount.replace(/[^0-9.-]/g, '')) || 0;
+          const amount = parseFloat((row[amountKey] || '0').replace(/[^0-9.-]/g, '')) || 0;
           return {
             id: Date.now() + i,
             date: row[dateKey] || '',
             description: row[descKey] || Object.values(row).join(' '),
             amount: Math.abs(amount),
             category: 'Other',
-            raw: row,
           };
         }).filter(t => t.amount > 0);
         setTransactions(prev => [...prev, ...parsed]);
@@ -110,22 +102,12 @@ export default function FinanceTracker() {
     setTransactions(prev => prev.filter(t => t.id !== id));
   }
 
-  function clearAll() {
-    if (confirm('Clear all transactions?')) setTransactions([]);
-  }
-
-  // Notes
   function addNote() {
     if (!newNote.trim()) return;
     setNotes(prev => [...prev, { id: Date.now(), text: newNote.trim(), createdAt: today() }]);
     setNewNote('');
   }
 
-  function deleteNote(id) {
-    setNotes(prev => prev.filter(n => n.id !== id));
-  }
-
-  // Reminders
   function addReminder() {
     if (!newReminder.title.trim() || !newReminder.date) return;
     setReminders(prev => [...prev, { id: Date.now(), ...newReminder, done: false }]);
@@ -136,356 +118,308 @@ export default function FinanceTracker() {
     setReminders(prev => prev.map(r => r.id === id ? { ...r, done: !r.done } : r));
   }
 
-  function deleteReminder(id) {
-    setReminders(prev => prev.filter(r => r.id !== id));
-  }
-
-  // Spending calculations
   const spending = {};
   transactions.forEach(t => { spending[t.category] = (spending[t.category] || 0) + t.amount; });
-
   const totalSpent = Object.values(spending).reduce((a, b) => a + b, 0);
-  const mandatorySpent = transactions
-    .filter(t => DEFAULT_CATEGORIES.find(c => c.name === t.category && c.type === 'mandatory'))
-    .reduce((a, t) => a + t.amount, 0);
-  const unnecessarySpent = transactions
-    .filter(t => DEFAULT_CATEGORIES.find(c => c.name === t.category && c.type === 'unnecessary'))
-    .reduce((a, t) => a + t.amount, 0);
+  const mandatorySpent = transactions.filter(t => DEFAULT_CATEGORIES.find(c => c.name === t.category && c.type === 'mandatory')).reduce((a, t) => a + t.amount, 0);
+  const unnecessarySpent = transactions.filter(t => DEFAULT_CATEGORIES.find(c => c.name === t.category && c.type === 'unnecessary')).reduce((a, t) => a + t.amount, 0);
 
-  // Budget alerts
-  const budgetAlerts = Object.entries(budgets)
-    .filter(([cat, budget]) => budget > 0 && (spending[cat] || 0) > budget)
-    .map(([cat]) => cat);
-
-  // Reminder alerts — due today or overdue and not done
+  const budgetAlerts = Object.entries(budgets).filter(([cat, budget]) => budget > 0 && (spending[cat] || 0) > budget).map(([cat]) => cat);
   const reminderAlerts = reminders.filter(r => !r.done && daysDiff(r.date) <= 0);
   const upcomingReminders = reminders.filter(r => !r.done && daysDiff(r.date) > 0 && daysDiff(r.date) <= 3);
 
   const tabs = ['dashboard', 'notes', 'reminders', 'transactions', 'budgets', 'upload'];
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-10">
-      {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Finance Tracker</h1>
-        <p className="text-gray-500 mt-1">Your data stays private — stored only in this browser.</p>
-      </div>
+    <div style={{ background: '#0a0f0a', minHeight: '100vh', color: '#e8f5e8', fontFamily: 'system-ui, sans-serif' }}>
+      <div style={{ maxWidth: '900px', margin: '0 auto', padding: '40px 24px' }}>
 
-      {/* Global Alerts */}
-      {(budgetAlerts.length > 0 || reminderAlerts.length > 0 || upcomingReminders.length > 0) && (
-        <div className="mb-6 space-y-2">
-          {budgetAlerts.map(cat => (
-            <div key={cat} className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-              <span>⚠️</span>
-              <span><strong>{cat}</strong> — Over budget! Spent ₹{(spending[cat] || 0).toFixed(2)} of ₹{budgets[cat]} limit.</span>
-            </div>
-          ))}
-          {reminderAlerts.map(r => (
-            <div key={r.id} className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-              <span>🔔</span>
-              <span><strong>{r.title}</strong> — {daysDiff(r.date) === 0 ? 'Due today!' : `Overdue by ${Math.abs(daysDiff(r.date))} day(s)!`} {r.amount && `₹${r.amount}`}</span>
-            </div>
-          ))}
-          {upcomingReminders.map(r => (
-            <div key={r.id} className="flex items-center gap-2 bg-yellow-50 border border-yellow-200 text-yellow-700 px-4 py-3 rounded-lg">
-              <span>📅</span>
-              <span><strong>{r.title}</strong> — Due in {daysDiff(r.date)} day(s). {r.amount && `₹${r.amount}`}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Tabs */}
-      <div className="flex gap-1 mb-6 border-b border-gray-200 overflow-x-auto">
-        {tabs.map(tab => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 text-sm font-medium capitalize border-b-2 whitespace-nowrap transition-colors ${
-              activeTab === tab
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            {tab}
-            {tab === 'reminders' && reminderAlerts.length > 0 && (
-              <span className="ml-1 bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5">{reminderAlerts.length}</span>
-            )}
-          </button>
-        ))}
-      </div>
-
-      {/* Dashboard Tab */}
-      {activeTab === 'dashboard' && (
-        <div>
-          <div className="grid grid-cols-3 gap-4 mb-8">
-            <div className="bg-gray-50 rounded-xl p-5 border border-gray-100">
-              <p className="text-sm text-gray-500">Total Spent</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">₹{totalSpent.toFixed(2)}</p>
-            </div>
-            <div className="bg-blue-50 rounded-xl p-5 border border-blue-100">
-              <p className="text-sm text-blue-600">Mandatory</p>
-              <p className="text-2xl font-bold text-blue-700 mt-1">₹{mandatorySpent.toFixed(2)}</p>
-            </div>
-            <div className="bg-orange-50 rounded-xl p-5 border border-orange-100">
-              <p className="text-sm text-orange-600">Unnecessary</p>
-              <p className="text-2xl font-bold text-orange-700 mt-1">₹{unnecessarySpent.toFixed(2)}</p>
-            </div>
+        {/* Header */}
+        <div style={{ marginBottom: '40px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+            <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 12px #22c55e' }} />
+            <span style={{ color: '#22c55e', fontSize: '12px', letterSpacing: '3px', textTransform: 'uppercase', fontWeight: 600 }}>Finance Tracker</span>
           </div>
-
-          <h2 className="text-lg font-semibold text-gray-800 mb-4">Spending by Category</h2>
-          {Object.keys(spending).length === 0 ? (
-            <p className="text-gray-400 text-sm">No transactions yet. Upload a CSV to get started.</p>
-          ) : (
-            <div className="space-y-3">
-              {Object.entries(spending).sort((a, b) => b[1] - a[1]).map(([cat, amount]) => {
-                const budget = budgets[cat] || 0;
-                const percent = budget > 0 ? Math.min((amount / budget) * 100, 100) : 0;
-                const over = budget > 0 && amount > budget;
-                const catInfo = DEFAULT_CATEGORIES.find(c => c.name === cat);
-                return (
-                  <div key={cat} className="bg-white border border-gray-100 rounded-lg p-4">
-                    <div className="flex justify-between items-center mb-1">
-                      <div className="flex items-center gap-2">
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                          catInfo?.type === 'mandatory' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'
-                        }`}>
-                          {catInfo?.type || 'unnecessary'}
-                        </span>
-                        <span className="text-sm font-medium text-gray-800">{cat}</span>
-                      </div>
-                      <span className={`text-sm font-semibold ${over ? 'text-red-600' : 'text-gray-700'}`}>
-                        ₹{amount.toFixed(2)} {budget > 0 && `/ ₹${budget}`}
-                      </span>
-                    </div>
-                    {budget > 0 && (
-                      <div className="w-full bg-gray-100 rounded-full h-1.5 mt-2">
-                        <div className={`h-1.5 rounded-full ${over ? 'bg-red-500' : 'bg-blue-500'}`} style={{ width: `${percent}%` }} />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          <h1 style={{ fontSize: '36px', fontWeight: 700, color: '#f0fdf0', margin: 0, letterSpacing: '-0.5px' }}>Your Money, Private.</h1>
+          <p style={{ color: '#4b7a4b', marginTop: '6px', fontSize: '14px' }}>All data stored locally in your browser — never leaves your device.</p>
         </div>
-      )}
 
-      {/* Notes Tab */}
-      {activeTab === 'notes' && (
-        <div>
-          <p className="text-sm text-gray-500 mb-5">Write anything — observations, goals, things to remember about your finances.</p>
-
-          {/* Add note */}
-          <div className="flex gap-2 mb-6">
-            <textarea
-              value={newNote}
-              onChange={e => setNewNote(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addNote(); } }}
-              placeholder="Write a note... (Enter to save)"
-              rows={2}
-              className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-blue-300"
-            />
-            <button
-              onClick={addNote}
-              className="bg-blue-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors self-start"
-            >
-              Add
-            </button>
-          </div>
-
-          {/* Notes list */}
-          {notes.length === 0 ? (
-            <p className="text-gray-400 text-sm">No notes yet.</p>
-          ) : (
-            <div className="space-y-3">
-              {[...notes].reverse().map(note => (
-                <div key={note.id} className="bg-yellow-50 border border-yellow-100 rounded-lg px-4 py-3 flex gap-3 items-start">
-                  <div className="flex-1">
-                    <p className="text-sm text-gray-800 whitespace-pre-wrap">{note.text}</p>
-                    <p className="text-xs text-gray-400 mt-1">{formatDate(note.createdAt)}</p>
-                  </div>
-                  <button onClick={() => deleteNote(note.id)} className="text-gray-300 hover:text-red-500 text-lg leading-none shrink-0">×</button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Reminders Tab */}
-      {activeTab === 'reminders' && (
-        <div>
-          <p className="text-sm text-gray-500 mb-5">Set payment reminders — rent, EMI, subscriptions, bills. You'll see alerts on the dashboard when they're due.</p>
-
-          {/* Add reminder */}
-          <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 mb-6 space-y-3">
-            <input
-              type="text"
-              placeholder="Title (e.g. Pay rent, Netflix renewal)"
-              value={newReminder.title}
-              onChange={e => setNewReminder(prev => ({ ...prev, title: e.target.value }))}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
-            />
-            <div className="flex gap-3">
-              <div className="flex-1">
-                <label className="text-xs text-gray-500 mb-1 block">Due date</label>
-                <input
-                  type="date"
-                  value={newReminder.date}
-                  onChange={e => setNewReminder(prev => ({ ...prev, date: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
-                />
+        {/* Alerts */}
+        {(budgetAlerts.length > 0 || reminderAlerts.length > 0 || upcomingReminders.length > 0) && (
+          <div style={{ marginBottom: '32px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {budgetAlerts.map(cat => (
+              <div key={cat} style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '12px', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: '10px', color: '#fca5a5' }}>
+                <span>⚠️</span>
+                <span style={{ fontSize: '14px' }}><strong>{cat}</strong> — Over budget! Spent ₹{(spending[cat] || 0).toFixed(0)} of ₹{budgets[cat]}</span>
               </div>
-              <div className="flex-1">
-                <label className="text-xs text-gray-500 mb-1 block">Amount (optional)</label>
-                <input
-                  type="number"
-                  placeholder="₹ 0"
-                  value={newReminder.amount}
-                  onChange={e => setNewReminder(prev => ({ ...prev, amount: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
-                />
+            ))}
+            {reminderAlerts.map(r => (
+              <div key={r.id} style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '12px', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: '10px', color: '#fca5a5' }}>
+                <span>🔔</span>
+                <span style={{ fontSize: '14px' }}><strong>{r.title}</strong> — {daysDiff(r.date) === 0 ? 'Due today!' : `Overdue by ${Math.abs(daysDiff(r.date))} day(s)`} {r.amount && `· ₹${r.amount}`}</span>
               </div>
-            </div>
-            <button
-              onClick={addReminder}
-              className="bg-blue-600 text-white text-sm px-5 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              Add Reminder
-            </button>
-          </div>
-
-          {/* Reminders list */}
-          {reminders.length === 0 ? (
-            <p className="text-gray-400 text-sm">No reminders yet.</p>
-          ) : (
-            <div className="space-y-2">
-              {[...reminders].sort((a, b) => new Date(a.date) - new Date(b.date)).map(r => {
-                const diff = daysDiff(r.date);
-                let statusColor = 'text-gray-500';
-                let statusText = `Due in ${diff} day(s)`;
-                if (r.done) { statusColor = 'text-green-600'; statusText = 'Done'; }
-                else if (diff < 0) { statusColor = 'text-red-600'; statusText = `Overdue by ${Math.abs(diff)} day(s)`; }
-                else if (diff === 0) { statusColor = 'text-red-500'; statusText = 'Due today!'; }
-                else if (diff <= 3) { statusColor = 'text-yellow-600'; statusText = `Due in ${diff} day(s)`; }
-
-                return (
-                  <div key={r.id} className={`flex items-center gap-3 bg-white border rounded-lg px-4 py-3 ${
-                    !r.done && diff <= 0 ? 'border-red-200' : 'border-gray-100'
-                  }`}>
-                    <input
-                      type="checkbox"
-                      checked={r.done}
-                      onChange={() => toggleReminder(r.id)}
-                      className="w-4 h-4 accent-blue-600 shrink-0"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-medium ${r.done ? 'line-through text-gray-400' : 'text-gray-800'}`}>{r.title}</p>
-                      <div className="flex gap-3 mt-0.5">
-                        <span className="text-xs text-gray-400">{formatDate(r.date)}</span>
-                        <span className={`text-xs font-medium ${statusColor}`}>{statusText}</span>
-                        {r.amount && <span className="text-xs text-gray-500">₹{r.amount}</span>}
-                      </div>
-                    </div>
-                    <button onClick={() => deleteReminder(r.id)} className="text-gray-300 hover:text-red-500 text-lg leading-none shrink-0">×</button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Transactions Tab */}
-      {activeTab === 'transactions' && (
-        <div>
-          <div className="flex justify-between items-center mb-4">
-            <p className="text-sm text-gray-500">{transactions.length} transactions</p>
-            {transactions.length > 0 && (
-              <button onClick={clearAll} className="text-xs text-red-500 hover:underline">Clear all</button>
-            )}
-          </div>
-          {transactions.length === 0 ? (
-            <p className="text-gray-400 text-sm">No transactions yet. Go to Upload tab to import a CSV.</p>
-          ) : (
-            <div className="space-y-2">
-              {transactions.map(t => (
-                <div key={t.id} className="flex items-center gap-3 bg-white border border-gray-100 rounded-lg px-4 py-3">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800 truncate">{maskAccount(t.description)}</p>
-                    <p className="text-xs text-gray-400">{formatDate(t.date)}</p>
-                  </div>
-                  <span className="text-sm font-semibold text-gray-900 shrink-0">₹{t.amount.toFixed(2)}</span>
-                  <select
-                    value={t.category}
-                    onChange={e => updateCategory(t.id, e.target.value)}
-                    className="text-xs border border-gray-200 rounded px-2 py-1 text-gray-700 bg-white"
-                  >
-                    {DEFAULT_CATEGORIES.map(c => (
-                      <option key={c.name} value={c.name}>{c.name}</option>
-                    ))}
-                  </select>
-                  <button onClick={() => deleteTransaction(t.id)} className="text-gray-300 hover:text-red-500 text-lg leading-none">×</button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Budgets Tab */}
-      {activeTab === 'budgets' && (
-        <div>
-          <p className="text-sm text-gray-500 mb-6">Set a monthly limit per category. You'll get a warning when you exceed it.</p>
-          <div className="space-y-3">
-            {DEFAULT_CATEGORIES.map(cat => (
-              <div key={cat.name} className="flex items-center gap-4 bg-white border border-gray-100 rounded-lg px-4 py-3">
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-gray-800">{cat.name}</p>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                    cat.type === 'mandatory' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'
-                  }`}>{cat.type}</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <span className="text-sm text-gray-500">₹</span>
-                  <input
-                    type="number"
-                    min="0"
-                    placeholder="No limit"
-                    value={budgets[cat.name] || ''}
-                    onChange={e => setBudgets(prev => ({ ...prev, [cat.name]: Number(e.target.value) }))}
-                    className="w-28 border border-gray-200 rounded px-2 py-1 text-sm text-gray-700"
-                  />
-                </div>
+            ))}
+            {upcomingReminders.map(r => (
+              <div key={r.id} style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.25)', borderRadius: '12px', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: '10px', color: '#fde047' }}>
+                <span>📅</span>
+                <span style={{ fontSize: '14px' }}><strong>{r.title}</strong> — Due in {daysDiff(r.date)} day(s) {r.amount && `· ₹${r.amount}`}</span>
               </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Upload Tab */}
-      {activeTab === 'upload' && (
-        <div>
-          <div className="border-2 border-dashed border-gray-200 rounded-xl p-10 text-center">
-            <p className="text-4xl mb-3">📂</p>
-            <p className="text-gray-700 font-medium mb-1">Upload your bank statement CSV</p>
-            <p className="text-sm text-gray-400 mb-4">Your file is read locally — never uploaded to any server</p>
-            <label className="cursor-pointer bg-blue-600 text-white text-sm px-5 py-2 rounded-lg hover:bg-blue-700 transition-colors">
-              Choose CSV file
-              <input type="file" accept=".csv" onChange={handleCSV} className="hidden" />
-            </label>
-          </div>
-          <div className="mt-6 bg-gray-50 rounded-lg p-4 text-sm text-gray-500">
-            <p className="font-medium text-gray-700 mb-2">Supported formats:</p>
-            <ul className="list-disc list-inside space-y-1">
-              <li>Most Indian bank CSV exports (HDFC, ICICI, SBI, Axis)</li>
-              <li>Columns auto-detected: Date, Description, Amount</li>
-              <li>Only debits/expenses are imported</li>
-            </ul>
-          </div>
+        {/* Tabs */}
+        <div style={{ display: 'flex', gap: '4px', marginBottom: '32px', background: '#111a11', borderRadius: '12px', padding: '4px', overflowX: 'auto' }}>
+          {tabs.map(tab => (
+            <button key={tab} onClick={() => setActiveTab(tab)} style={{
+              padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 500,
+              background: activeTab === tab ? '#22c55e' : 'transparent',
+              color: activeTab === tab ? '#000' : '#4b7a4b',
+              position: 'relative', whiteSpace: 'nowrap', transition: 'all 0.15s',
+            }}>
+              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {tab === 'reminders' && reminderAlerts.length > 0 && (
+                <span style={{ marginLeft: '6px', background: '#ef4444', color: '#fff', borderRadius: '10px', padding: '1px 6px', fontSize: '10px', fontWeight: 700 }}>{reminderAlerts.length}</span>
+              )}
+            </button>
+          ))}
         </div>
-      )}
+
+        {/* DASHBOARD */}
+        {activeTab === 'dashboard' && (
+          <div>
+            {/* Stats */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '40px' }}>
+              {[
+                { label: 'Total Spent', value: `₹${totalSpent.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, glow: '#22c55e' },
+                { label: 'Mandatory', value: `₹${mandatorySpent.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, glow: '#3b82f6' },
+                { label: 'Unnecessary', value: `₹${unnecessarySpent.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, glow: '#f97316' },
+              ].map(stat => (
+                <div key={stat.label} style={{ background: '#111a11', border: `1px solid ${stat.glow}22`, borderRadius: '16px', padding: '24px', boxShadow: `0 0 30px ${stat.glow}0d` }}>
+                  <p style={{ color: '#4b7a4b', fontSize: '12px', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '10px' }}>{stat.label}</p>
+                  <p style={{ fontSize: '28px', fontWeight: 700, color: stat.glow, margin: 0 }}>{stat.value}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Category bars */}
+            <p style={{ color: '#4b7a4b', fontSize: '12px', letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '16px', fontWeight: 600 }}>Spending Breakdown</p>
+            {Object.keys(spending).length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '60px 0', color: '#2d4a2d' }}>
+                <p style={{ fontSize: '40px', marginBottom: '12px' }}>📂</p>
+                <p>No transactions yet. Upload a CSV to get started.</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {Object.entries(spending).sort((a, b) => b[1] - a[1]).map(([cat, amount]) => {
+                  const budget = budgets[cat] || 0;
+                  const percent = budget > 0 ? Math.min((amount / budget) * 100, 100) : 0;
+                  const over = budget > 0 && amount > budget;
+                  const catInfo = DEFAULT_CATEGORIES.find(c => c.name === cat);
+                  const barColor = over ? '#ef4444' : catInfo?.type === 'mandatory' ? '#22c55e' : '#f97316';
+                  return (
+                    <div key={cat} style={{ background: '#111a11', border: '1px solid #1a2e1a', borderRadius: '14px', padding: '18px 20px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: budget > 0 ? '12px' : '0' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: barColor, display: 'inline-block', boxShadow: `0 0 8px ${barColor}` }} />
+                          <span style={{ fontSize: '14px', color: '#c8e6c8', fontWeight: 500 }}>{cat}</span>
+                          <span style={{ fontSize: '11px', color: catInfo?.type === 'mandatory' ? '#22c55e' : '#f97316', background: catInfo?.type === 'mandatory' ? '#22c55e15' : '#f9731615', padding: '2px 8px', borderRadius: '6px' }}>
+                            {catInfo?.type || 'unnecessary'}
+                          </span>
+                        </div>
+                        <span style={{ fontSize: '15px', fontWeight: 600, color: over ? '#ef4444' : '#e8f5e8' }}>
+                          ₹{amount.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                          {budget > 0 && <span style={{ color: '#4b7a4b', fontWeight: 400, fontSize: '13px' }}> / ₹{budget}</span>}
+                        </span>
+                      </div>
+                      {budget > 0 && (
+                        <div style={{ background: '#0a150a', borderRadius: '4px', height: '4px', overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${percent}%`, background: barColor, borderRadius: '4px', boxShadow: `0 0 8px ${barColor}`, transition: 'width 0.5s ease' }} />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* NOTES */}
+        {activeTab === 'notes' && (
+          <div>
+            <p style={{ color: '#4b7a4b', fontSize: '13px', marginBottom: '24px' }}>Jot down financial thoughts, goals, or observations.</p>
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '28px' }}>
+              <textarea
+                value={newNote}
+                onChange={e => setNewNote(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addNote(); } }}
+                placeholder="Write a note... (Enter to save)"
+                rows={2}
+                style={{ flex: 1, background: '#111a11', border: '1px solid #1a2e1a', borderRadius: '10px', padding: '12px 14px', color: '#c8e6c8', fontSize: '14px', resize: 'none', outline: 'none' }}
+              />
+              <button onClick={addNote} style={{ background: '#22c55e', color: '#000', border: 'none', borderRadius: '10px', padding: '0 20px', fontWeight: 600, cursor: 'pointer', fontSize: '14px', alignSelf: 'flex-start', height: '44px' }}>Add</button>
+            </div>
+            {notes.length === 0 ? (
+              <p style={{ color: '#2d4a2d', textAlign: 'center', padding: '40px 0' }}>No notes yet.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {[...notes].reverse().map(note => (
+                  <div key={note.id} style={{ background: '#111a11', border: '1px solid #1e3a1e', borderRadius: '12px', padding: '16px 18px', display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                    <div style={{ flex: 1 }}>
+                      <p style={{ color: '#c8e6c8', fontSize: '14px', margin: '0 0 6px', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{note.text}</p>
+                      <p style={{ color: '#2d4a2d', fontSize: '12px', margin: 0 }}>{formatDate(note.createdAt)}</p>
+                    </div>
+                    <button onClick={() => setNotes(prev => prev.filter(n => n.id !== note.id))} style={{ background: 'none', border: 'none', color: '#2d4a2d', cursor: 'pointer', fontSize: '18px', lineHeight: 1, padding: 0 }}>×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* REMINDERS */}
+        {activeTab === 'reminders' && (
+          <div>
+            <p style={{ color: '#4b7a4b', fontSize: '13px', marginBottom: '24px' }}>Set payment reminders. Get alerts when they're due.</p>
+            <div style={{ background: '#111a11', border: '1px solid #1a2e1a', borderRadius: '14px', padding: '20px', marginBottom: '28px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <input type="text" placeholder="Title — e.g. Pay rent, Netflix" value={newReminder.title}
+                onChange={e => setNewReminder(p => ({ ...p, title: e.target.value }))}
+                style={{ background: '#0a150a', border: '1px solid #1a2e1a', borderRadius: '8px', padding: '10px 14px', color: '#c8e6c8', fontSize: '14px', outline: 'none' }}
+              />
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ flex: 1 }}>
+                  <p style={{ color: '#4b7a4b', fontSize: '11px', marginBottom: '6px', letterSpacing: '1px' }}>DUE DATE</p>
+                  <input type="date" value={newReminder.date}
+                    onChange={e => setNewReminder(p => ({ ...p, date: e.target.value }))}
+                    style={{ width: '100%', background: '#0a150a', border: '1px solid #1a2e1a', borderRadius: '8px', padding: '10px 14px', color: '#c8e6c8', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <p style={{ color: '#4b7a4b', fontSize: '11px', marginBottom: '6px', letterSpacing: '1px' }}>AMOUNT (optional)</p>
+                  <input type="number" placeholder="₹ 0" value={newReminder.amount}
+                    onChange={e => setNewReminder(p => ({ ...p, amount: e.target.value }))}
+                    style={{ width: '100%', background: '#0a150a', border: '1px solid #1a2e1a', borderRadius: '8px', padding: '10px 14px', color: '#c8e6c8', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
+                  />
+                </div>
+              </div>
+              <button onClick={addReminder} style={{ background: '#22c55e', color: '#000', border: 'none', borderRadius: '8px', padding: '11px', fontWeight: 600, cursor: 'pointer', fontSize: '14px' }}>Add Reminder</button>
+            </div>
+            {reminders.length === 0 ? (
+              <p style={{ color: '#2d4a2d', textAlign: 'center', padding: '40px 0' }}>No reminders yet.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {[...reminders].sort((a, b) => new Date(a.date) - new Date(b.date)).map(r => {
+                  const diff = daysDiff(r.date);
+                  let statusColor = '#4b7a4b';
+                  let statusText = `Due in ${diff} day(s)`;
+                  if (r.done) { statusColor = '#22c55e'; statusText = 'Completed'; }
+                  else if (diff < 0) { statusColor = '#ef4444'; statusText = `Overdue ${Math.abs(diff)}d`; }
+                  else if (diff === 0) { statusColor = '#ef4444'; statusText = 'Due today!'; }
+                  else if (diff <= 3) { statusColor = '#eab308'; statusText = `Due in ${diff}d`; }
+
+                  return (
+                    <div key={r.id} style={{ background: '#111a11', border: `1px solid ${!r.done && diff <= 0 ? '#ef444430' : '#1a2e1a'}`, borderRadius: '12px', padding: '16px 18px', display: 'flex', alignItems: 'center', gap: '14px' }}>
+                      <input type="checkbox" checked={r.done} onChange={() => toggleReminder(r.id)}
+                        style={{ width: '16px', height: '16px', accentColor: '#22c55e', cursor: 'pointer', flexShrink: 0 }}
+                      />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ color: r.done ? '#2d4a2d' : '#c8e6c8', fontSize: '14px', fontWeight: 500, margin: '0 0 4px', textDecoration: r.done ? 'line-through' : 'none' }}>{r.title}</p>
+                        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                          <span style={{ color: '#2d4a2d', fontSize: '12px' }}>{formatDate(r.date)}</span>
+                          <span style={{ color: statusColor, fontSize: '12px', fontWeight: 600 }}>{statusText}</span>
+                          {r.amount && <span style={{ color: '#22c55e', fontSize: '12px' }}>₹{r.amount}</span>}
+                        </div>
+                      </div>
+                      <button onClick={() => setReminders(prev => prev.filter(x => x.id !== r.id))} style={{ background: 'none', border: 'none', color: '#2d4a2d', cursor: 'pointer', fontSize: '18px' }}>×</button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TRANSACTIONS */}
+        {activeTab === 'transactions' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <p style={{ color: '#4b7a4b', fontSize: '13px', margin: 0 }}>{transactions.length} transactions</p>
+              {transactions.length > 0 && (
+                <button onClick={() => { if (confirm('Clear all?')) setTransactions([]); }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '13px' }}>Clear all</button>
+              )}
+            </div>
+            {transactions.length === 0 ? (
+              <p style={{ color: '#2d4a2d', textAlign: 'center', padding: '60px 0' }}>No transactions. Go to Upload to import a CSV.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {transactions.map(t => (
+                  <div key={t.id} style={{ background: '#111a11', border: '1px solid #1a2e1a', borderRadius: '12px', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: '14px' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ color: '#c8e6c8', fontSize: '13px', fontWeight: 500, margin: '0 0 2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{maskAccount(t.description)}</p>
+                      <p style={{ color: '#2d4a2d', fontSize: '12px', margin: 0 }}>{formatDate(t.date)}</p>
+                    </div>
+                    <span style={{ color: '#22c55e', fontWeight: 600, fontSize: '14px', flexShrink: 0 }}>₹{t.amount.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
+                    <select value={t.category} onChange={e => updateCategory(t.id, e.target.value)}
+                      style={{ background: '#0a150a', border: '1px solid #1a2e1a', borderRadius: '6px', padding: '4px 8px', color: '#4b7a4b', fontSize: '12px', cursor: 'pointer', outline: 'none' }}
+                    >
+                      {DEFAULT_CATEGORIES.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                    </select>
+                    <button onClick={() => deleteTransaction(t.id)} style={{ background: 'none', border: 'none', color: '#2d4a2d', cursor: 'pointer', fontSize: '18px' }}>×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* BUDGETS */}
+        {activeTab === 'budgets' && (
+          <div>
+            <p style={{ color: '#4b7a4b', fontSize: '13px', marginBottom: '24px' }}>Set monthly limits. You'll get an alert when you exceed them.</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {DEFAULT_CATEGORIES.map(cat => (
+                <div key={cat.name} style={{ background: '#111a11', border: '1px solid #1a2e1a', borderRadius: '12px', padding: '16px 20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <div style={{ flex: 1 }}>
+                    <p style={{ color: '#c8e6c8', fontSize: '14px', fontWeight: 500, margin: '0 0 4px' }}>{cat.name}</p>
+                    <span style={{ fontSize: '11px', color: cat.type === 'mandatory' ? '#22c55e' : '#f97316', background: cat.type === 'mandatory' ? '#22c55e15' : '#f9731615', padding: '2px 8px', borderRadius: '6px' }}>{cat.type}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ color: '#22c55e', fontSize: '14px' }}>₹</span>
+                    <input type="number" min="0" placeholder="No limit"
+                      value={budgets[cat.name] || ''}
+                      onChange={e => setBudgets(prev => ({ ...prev, [cat.name]: Number(e.target.value) }))}
+                      style={{ width: '110px', background: '#0a150a', border: '1px solid #1a2e1a', borderRadius: '8px', padding: '8px 12px', color: '#c8e6c8', fontSize: '14px', outline: 'none' }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* UPLOAD */}
+        {activeTab === 'upload' && (
+          <div>
+            <label style={{ display: 'block', border: '2px dashed #1a2e1a', borderRadius: '16px', padding: '60px 20px', textAlign: 'center', cursor: 'pointer', transition: 'border-color 0.2s' }}>
+              <p style={{ fontSize: '48px', margin: '0 0 16px' }}>📂</p>
+              <p style={{ color: '#c8e6c8', fontWeight: 600, fontSize: '16px', margin: '0 0 8px' }}>Upload Bank Statement CSV</p>
+              <p style={{ color: '#2d4a2d', fontSize: '13px', margin: '0 0 20px' }}>Read locally — never sent to any server</p>
+              <span style={{ background: '#22c55e', color: '#000', padding: '10px 24px', borderRadius: '8px', fontSize: '14px', fontWeight: 600 }}>Choose CSV File</span>
+              <input type="file" accept=".csv" onChange={handleCSV} style={{ display: 'none' }} />
+            </label>
+            <div style={{ background: '#111a11', border: '1px solid #1a2e1a', borderRadius: '12px', padding: '20px', marginTop: '20px' }}>
+              <p style={{ color: '#22c55e', fontSize: '12px', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '12px', fontWeight: 600 }}>Supported Formats</p>
+              {['HDFC, ICICI, SBI, Axis bank CSV exports', 'Auto-detects: Date, Description, Amount columns', 'Only debit/expense entries are imported'].map(item => (
+                <p key={item} style={{ color: '#4b7a4b', fontSize: '13px', margin: '6px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ color: '#22c55e' }}>✓</span> {item}
+                </p>
+              ))}
+            </div>
+          </div>
+        )}
+
+      </div>
     </div>
   );
 }
