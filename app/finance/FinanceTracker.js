@@ -126,6 +126,21 @@ export default function FinanceTracker() {
   });
   const [cryptoSubTab, setCryptoSubTab] = useState('portfolio');
 
+  // Wallet state
+  const [wallets, setWallets] = useState([]);
+  const [newWallet, setNewWallet] = useState({ name: '', address: '', network: 'Ethereum', app: '' });
+  const [revealedWallets, setRevealedWallets] = useState(new Set()); // NOT persisted — auto-hides on nav
+
+  // Spending history state
+  const [spendingHistory, setSpendingHistory] = useState([]);
+  const [historyLabel, setHistoryLabel] = useState(() => {
+    const d = new Date();
+    return `${d.toLocaleString('default', { month: 'long' })} ${d.getFullYear()}`;
+  });
+
+  // Auto-hide all wallet reveals when tab changes
+  useEffect(() => { setRevealedWallets(new Set()); }, [activeTab, cryptoSubTab]);
+
   // Load from localStorage
   useEffect(() => {
     const load = (key, set) => { const v = localStorage.getItem(key); if (v) set(JSON.parse(v)); };
@@ -134,6 +149,8 @@ export default function FinanceTracker() {
     load('finance_notes', setNotes);
     load('finance_reminders', setReminders);
     load('crypto_txs', setCryptoTxs);
+    load('finance_wallets', setWallets);
+    load('finance_spending_history', setSpendingHistory);
   }, []);
 
   useEffect(() => { localStorage.setItem('finance_transactions', JSON.stringify(transactions)); }, [transactions]);
@@ -141,6 +158,8 @@ export default function FinanceTracker() {
   useEffect(() => { localStorage.setItem('finance_notes', JSON.stringify(notes)); }, [notes]);
   useEffect(() => { localStorage.setItem('finance_reminders', JSON.stringify(reminders)); }, [reminders]);
   useEffect(() => { localStorage.setItem('crypto_txs', JSON.stringify(cryptoTxs)); }, [cryptoTxs]);
+  useEffect(() => { localStorage.setItem('finance_wallets', JSON.stringify(wallets)); }, [wallets]);
+  useEffect(() => { localStorage.setItem('finance_spending_history', JSON.stringify(spendingHistory)); }, [spendingHistory]);
 
   // Fetch live prices
   const fetchPrices = useCallback(async () => {
@@ -183,6 +202,12 @@ export default function FinanceTracker() {
   }
 
   // ── Crypto helpers ────────────────────────────────────────────────────────────
+
+  function addReminder() {
+    if (!newReminder.title.trim() || !newReminder.date) return;
+    setReminders(prev => [...prev, { id: Date.now(), ...newReminder, done: false }]);
+    setNewReminder({ title: '', date: today(), amount: '' });
+  }
 
   function addCryptoTx() {
     if (!newCryptoTx.quantity || !newCryptoTx.coinId) return;
@@ -238,7 +263,36 @@ export default function FinanceTracker() {
   const reminderAlerts = reminders.filter(r => !r.done && daysDiff(r.date) <= 0);
   const upcomingReminders = reminders.filter(r => !r.done && daysDiff(r.date) > 0 && daysDiff(r.date) <= 3);
 
-  const tabs = ['dashboard', 'crypto', 'notes', 'reminders', 'transactions', 'budgets', 'upload'];
+  const tabs = ['dashboard', 'crypto', 'history', 'notes', 'reminders', 'transactions', 'budgets', 'upload'];
+
+  function saveSnapshot() {
+    if (!historyLabel.trim()) return;
+    const snap = {
+      id: Date.now(),
+      label: historyLabel,
+      date: today(),
+      total: totalSpent,
+      mandatory: mandatorySpent,
+      unnecessary: unnecessarySpent,
+      breakdown: { ...spending },
+      txCount: transactions.length,
+    };
+    setSpendingHistory(prev => [snap, ...prev]);
+  }
+
+  function addWallet() {
+    if (!newWallet.name.trim() || !newWallet.address.trim()) return;
+    setWallets(prev => [...prev, { id: Date.now(), ...newWallet }]);
+    setNewWallet({ name: '', address: '', network: 'Ethereum', app: '' });
+  }
+
+  function toggleReveal(id) {
+    setRevealedWallets(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
@@ -352,7 +406,7 @@ export default function FinanceTracker() {
           <div>
             {/* Crypto sub-tabs */}
             <div style={{ display: 'flex', gap: '4px', marginBottom: '24px', background: '#0d160d', borderRadius: '10px', padding: '4px' }}>
-              {['portfolio', 'prices', 'transactions', 'add'].map(st => (
+              {['portfolio', 'prices', 'transactions', 'add', 'wallets'].map(st => (
                 <button key={st} onClick={() => setCryptoSubTab(st)} style={{
                   padding: '7px 14px', borderRadius: '7px', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: 600,
                   background: cryptoSubTab === st ? '#22c55e33' : 'transparent',
@@ -565,6 +619,142 @@ export default function FinanceTracker() {
                 <button onClick={addCryptoTx} style={{ marginTop: '18px', background: S.green, color: '#000', border: 'none', borderRadius: '8px', padding: '12px 24px', fontWeight: 700, cursor: 'pointer', fontSize: '14px', width: '100%' }}>
                   Add Transaction
                 </button>
+              </div>
+            )}
+            {/* ─── WALLETS sub-tab ─────────────────────────────────────────── */}
+            {cryptoSubTab === 'wallets' && (
+              <div>
+                <p style={{ color: S.muted, fontSize: '13px', marginBottom: '20px' }}>Store your wallet addresses privately. Addresses are hidden by default and auto-hide when you leave this tab.</p>
+
+                {/* Add wallet form */}
+                <div style={{ ...card, marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <p style={{ color: S.green, fontSize: '11px', letterSpacing: '2px', textTransform: 'uppercase', margin: 0, fontWeight: 600 }}>Add Wallet</p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div>
+                      <p style={{ color: S.muted, fontSize: '11px', marginBottom: '6px', letterSpacing: '1px' }}>LABEL</p>
+                      <input type="text" placeholder="e.g. My MetaMask" value={newWallet.name}
+                        onChange={e => setNewWallet(p => ({ ...p, name: e.target.value }))} style={{ ...input }} />
+                    </div>
+                    <div>
+                      <p style={{ color: S.muted, fontSize: '11px', marginBottom: '6px', letterSpacing: '1px' }}>NETWORK</p>
+                      <select value={newWallet.network} onChange={e => setNewWallet(p => ({ ...p, network: e.target.value }))} style={{ ...input }}>
+                        {['Ethereum','Bitcoin','Solana','BNB Chain','Polygon','Avalanche','Arbitrum','Optimism','Base','Tron','Cosmos','Other'].map(n => <option key={n}>{n}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <p style={{ color: S.muted, fontSize: '11px', marginBottom: '6px', letterSpacing: '1px' }}>WALLET / EXCHANGE APP</p>
+                      <input type="text" placeholder="e.g. MetaMask, Binance, Ledger" value={newWallet.app}
+                        onChange={e => setNewWallet(p => ({ ...p, app: e.target.value }))} style={{ ...input }} />
+                    </div>
+                    <div>
+                      <p style={{ color: S.muted, fontSize: '11px', marginBottom: '6px', letterSpacing: '1px' }}>WALLET ADDRESS</p>
+                      <input type="text" placeholder="0x..." value={newWallet.address}
+                        onChange={e => setNewWallet(p => ({ ...p, address: e.target.value }))} style={{ ...input }} />
+                    </div>
+                  </div>
+                  <button onClick={addWallet} style={{ background: S.green, color: '#000', border: 'none', borderRadius: '8px', padding: '11px', fontWeight: 700, cursor: 'pointer', fontSize: '14px' }}>Save Wallet</button>
+                </div>
+
+                {/* Wallet list */}
+                {wallets.length === 0 ? (
+                  <p style={{ color: S.faint, textAlign: 'center', padding: '40px 0' }}>No wallets saved yet.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {wallets.map(w => {
+                      const revealed = revealedWallets.has(w.id);
+                      return (
+                        <div key={w.id} style={{ ...card, display: 'flex', alignItems: 'center', gap: '14px' }}>
+                          <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: S.greenDim, border: `1px solid ${S.green}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', flexShrink: 0 }}>
+                            🔐
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                              <p style={{ color: S.text, fontSize: '14px', fontWeight: 600, margin: 0 }}>{w.name}</p>
+                              <span style={{ fontSize: '10px', color: S.green, background: S.greenDim, padding: '2px 7px', borderRadius: '5px' }}>{w.network}</span>
+                              {w.app && <span style={{ fontSize: '10px', color: S.muted }}>{w.app}</span>}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <code style={{ fontSize: '12px', color: revealed ? S.green : S.faint, fontFamily: 'monospace', background: S.deep, padding: '4px 10px', borderRadius: '6px', letterSpacing: revealed ? '0.5px' : '2px' }}>
+                                {revealed ? w.address : '••••••••••••••••••••••••••••••••••••••••'}
+                              </code>
+                              <button onClick={() => toggleReveal(w.id)} style={{ background: 'none', border: `1px solid ${S.border}`, borderRadius: '6px', padding: '3px 10px', color: revealed ? S.green : S.muted, cursor: 'pointer', fontSize: '11px', flexShrink: 0 }}>
+                                {revealed ? '🙈 Hide' : '👁 Show'}
+                              </button>
+                            </div>
+                          </div>
+                          <button onClick={() => setWallets(p => p.filter(x => x.id !== w.id))} style={{ background: 'none', border: 'none', color: S.faint, cursor: 'pointer', fontSize: '18px', flexShrink: 0 }}>×</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+          </div>
+        )}
+
+        {/* ─── HISTORY ────────────────────────────────────────────────────────── */}
+        {activeTab === 'history' && (
+          <div>
+            <div style={{ ...card, marginBottom: '28px' }}>
+              <p style={{ color: S.green, fontSize: '11px', letterSpacing: '2px', textTransform: 'uppercase', margin: '0 0 14px', fontWeight: 600 }}>Save Current Spending as Snapshot</p>
+              <p style={{ color: S.muted, fontSize: '12px', margin: '0 0 14px' }}>This saves a snapshot of your current {transactions.length} transactions (₹{fmt(totalSpent)} total) for future reference.</p>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <input type="text" placeholder="Label e.g. March 2026" value={historyLabel}
+                  onChange={e => setHistoryLabel(e.target.value)}
+                  style={{ ...input, flex: 1 }} />
+                <button onClick={saveSnapshot} disabled={transactions.length === 0}
+                  style={{ background: transactions.length === 0 ? S.faint : S.green, color: '#000', border: 'none', borderRadius: '8px', padding: '0 20px', fontWeight: 700, cursor: transactions.length === 0 ? 'not-allowed' : 'pointer', fontSize: '14px', flexShrink: 0 }}>
+                  Save
+                </button>
+              </div>
+            </div>
+
+            {spendingHistory.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '50px 0', color: S.faint }}>
+                <p style={{ fontSize: '36px', margin: '0 0 10px' }}>📊</p>
+                <p>No history yet. Save a snapshot to start tracking over time.</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                {spendingHistory.map(snap => (
+                  <div key={snap.id} style={{ ...card }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+                      <div>
+                        <p style={{ color: S.text, fontSize: '16px', fontWeight: 700, margin: '0 0 4px' }}>{snap.label}</p>
+                        <p style={{ color: S.faint, fontSize: '11px', margin: 0 }}>Saved on {formatDate(snap.date)} · {snap.txCount} transactions</p>
+                      </div>
+                      <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                        <div style={{ textAlign: 'right' }}>
+                          <p style={{ color: S.green, fontSize: '18px', fontWeight: 700, margin: 0 }}>₹{fmt(snap.total)}</p>
+                          <p style={{ color: S.muted, fontSize: '11px', margin: 0 }}>total</p>
+                        </div>
+                        <button onClick={() => setSpendingHistory(p => p.filter(x => x.id !== snap.id))} style={{ background: 'none', border: 'none', color: S.faint, cursor: 'pointer', fontSize: '18px' }}>×</button>
+                      </div>
+                    </div>
+                    {/* Mandatory vs Unnecessary */}
+                    <div style={{ display: 'flex', gap: '10px', marginBottom: '14px' }}>
+                      <div style={{ flex: 1, background: S.deep, borderRadius: '8px', padding: '10px 14px' }}>
+                        <p style={{ color: '#3b82f6', fontSize: '10px', letterSpacing: '1px', textTransform: 'uppercase', margin: '0 0 4px' }}>Mandatory</p>
+                        <p style={{ color: S.text, fontSize: '15px', fontWeight: 600, margin: 0 }}>₹{fmt(snap.mandatory)}</p>
+                      </div>
+                      <div style={{ flex: 1, background: S.deep, borderRadius: '8px', padding: '10px 14px' }}>
+                        <p style={{ color: S.orange, fontSize: '10px', letterSpacing: '1px', textTransform: 'uppercase', margin: '0 0 4px' }}>Unnecessary</p>
+                        <p style={{ color: S.text, fontSize: '15px', fontWeight: 600, margin: 0 }}>₹{fmt(snap.unnecessary)}</p>
+                      </div>
+                    </div>
+                    {/* Category breakdown */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {Object.entries(snap.breakdown).sort((a, b) => b[1] - a[1]).map(([cat, amt]) => (
+                        <div key={cat} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ color: S.muted, fontSize: '12px' }}>{cat}</span>
+                          <span style={{ color: S.text, fontSize: '12px', fontWeight: 500 }}>₹{fmt(amt)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
