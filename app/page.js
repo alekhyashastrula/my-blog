@@ -11,6 +11,12 @@ export default function Home() {
         <p className="mt-2 text-gray-500">Thoughts on code, projects, and everything in between.</p>
       </header>
 
+      <div className="mb-10">
+        <Link href="/finance" className="inline-flex items-center gap-2 bg-blue-50 border border-blue-100 text-blue-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-blue-100 transition-colors">
+          💰 Finance Tracker — track your spending privately
+        </Link>
+      </div>
+
       <ul className="space-y-8">
         {posts.map((post) => (
           <li key={post.slug}>
