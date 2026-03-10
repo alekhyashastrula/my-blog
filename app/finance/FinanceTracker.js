@@ -181,6 +181,7 @@ export default function FinanceTracker() {
   const [notes, setNotes] = useState([]);
   const [newNote, setNewNote] = useState('');
   const [newTx, setNewTx] = useState({ date: today(), description: '', amount: '', category: 'Other' });
+  const [importSummary, setImportSummary] = useState(null); // { imported, skipped }
   const [reminders, setReminders] = useState([]);
   const [newReminder, setNewReminder] = useState({ title: '', date: today(), amount: '' });
 
@@ -269,6 +270,10 @@ export default function FinanceTracker() {
 
   useEffect(() => { if (activeTab === 'crypto') fetchPrices(); }, [activeTab, fetchPrices]);
 
+  function txKey(t) {
+    return `${t.date}_${parseFloat(t.amount).toFixed(2)}_${t.description.slice(0, 20).toLowerCase().trim()}`;
+  }
+
   function handleCSV(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -283,7 +288,14 @@ export default function FinanceTracker() {
           const amount = parseFloat((row[amountKey] || '0').replace(/[^0-9.-]/g, '')) || 0;
           return { id: Date.now() + i, date: row[dateKey] || '', description: row[descKey] || Object.values(row).join(' '), amount: Math.abs(amount), category: 'Other' };
         }).filter(t => t.amount > 0);
-        setTransactions(prev => [...prev, ...parsed]);
+
+        setTransactions(prev => {
+          const existingKeys = new Set(prev.map(txKey));
+          const newTxs = parsed.filter(t => !existingKeys.has(txKey(t)));
+          const skipped = parsed.length - newTxs.length;
+          setImportSummary({ imported: newTxs.length, skipped });
+          return [...prev, ...newTxs];
+        });
         setActiveTab('transactions');
       },
     });
@@ -402,6 +414,31 @@ export default function FinanceTracker() {
   const unnecessarySpent = filteredTxs.filter(t => DEFAULT_CATEGORIES.find(c => c.name === t.category && c.type === 'unnecessary')).reduce((a, t) => a + t.amount, 0);
   const budgetAlerts = Object.entries(budgets).filter(([cat, budget]) => budget > 0 && (spending[cat] || 0) > budget).map(([cat]) => cat);
   const reminderAlerts = reminders.filter(r => !r.done && daysDiff(r.date) <= 0);
+
+  // Duplicate payment detection — same month + same amount + similar description
+  const duplicatePaymentAlerts = (() => {
+    const groups = {};
+    transactions.forEach(t => {
+      const key = `${(t.date || '').slice(0, 7)}_${parseFloat(t.amount).toFixed(2)}_${t.description.slice(0, 20).toLowerCase().trim()}`;
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(t);
+    });
+    return Object.values(groups).filter(g => g.length > 1);
+  })();
+
+  // EMI amount mismatch — transaction matching a loan's bank but wrong amount (>10% off)
+  const emiMismatchAlerts = loans.flatMap(loan => {
+    const emi = parseFloat(loan.emiAmount) || 0;
+    if (!emi) return [];
+    const bankLower = loan.bank.toLowerCase().replace(' bank', '').replace(' ltd', '');
+    const nameLower = loan.name.toLowerCase();
+    return transactions.filter(t => {
+      const desc = t.description.toLowerCase();
+      const matches = desc.includes(bankLower) || desc.includes(nameLower) || desc.includes('emi') || desc.includes('loan');
+      const diff = Math.abs(t.amount - emi);
+      return matches && diff > 1 && diff / emi > 0.1;
+    }).map(t => ({ loan, transaction: t, expected: emi, actual: t.amount }));
+  });
   const upcomingReminders = reminders.filter(r => !r.done && daysDiff(r.date) > 0 && daysDiff(r.date) <= 3);
 
   const tabs = ['dashboard', 'loans', 'crypto', 'history', 'notes', 'reminders', 'transactions', 'budgets', 'upload'];
@@ -535,7 +572,7 @@ export default function FinanceTracker() {
         </div>
 
         {/* Alerts */}
-        {(budgetAlerts.length > 0 || reminderAlerts.length > 0 || upcomingReminders.length > 0 || emiDueAlerts.length > 0) && (
+        {(budgetAlerts.length > 0 || reminderAlerts.length > 0 || upcomingReminders.length > 0 || emiDueAlerts.length > 0 || duplicatePaymentAlerts.length > 0 || emiMismatchAlerts.length > 0) && (
           <div style={{ marginBottom: '28px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {budgetAlerts.map(cat => (
               <div key={cat} style={{ background: `${S.red}12`, border: `1px solid ${S.red}30`, borderRadius: '12px', padding: '12px 16px', display: 'flex', gap: '10px', color: '#fca5a5', fontSize: '13px', alignItems: 'center' }}>
@@ -570,6 +607,43 @@ export default function FinanceTracker() {
                 </div>
               );
             })}
+
+            {duplicatePaymentAlerts.map((group, i) => (
+              <div key={i} style={{ background: `${S.amber}12`, border: `1px solid ${S.amber}35`, borderRadius: '12px', padding: '12px 16px', display: 'flex', gap: '10px', color: '#fde68a', fontSize: '13px', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                  <span style={{ fontSize: '16px', flexShrink: 0 }}>⚠️</span>
+                  <div>
+                    <strong>Possible duplicate payment</strong> — "{group[0].description.slice(0, 40)}"
+                    <p style={{ margin: '3px 0 0', fontSize: '11px', color: S.amber }}>
+                      ₹{fmt(group[0].amount)} appears {group.length}× on {[...new Set(group.map(t => formatDate(t.date)))].join(', ')}
+                    </p>
+                  </div>
+                </div>
+                <button onClick={() => setActiveTab('transactions')}
+                  style={{ background: `${S.amber}20`, border: `1px solid ${S.amber}40`, borderRadius: '8px', padding: '4px 12px', color: S.amber, cursor: 'pointer', fontSize: '11px', fontWeight: 700, flexShrink: 0 }}>
+                  Review
+                </button>
+              </div>
+            ))}
+
+            {emiMismatchAlerts.map((alert, i) => (
+              <div key={i} style={{ background: `${S.orange}12`, border: `1px solid ${S.orange}35`, borderRadius: '12px', padding: '12px 16px', display: 'flex', gap: '10px', color: '#fed7aa', fontSize: '13px', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                  <span style={{ fontSize: '16px', flexShrink: 0 }}>💸</span>
+                  <div>
+                    <strong>{alert.loan.name}</strong> — EMI amount mismatch
+                    <p style={{ margin: '3px 0 0', fontSize: '11px', color: S.orange }}>
+                      Expected ₹{fmt(alert.expected)} · Found ₹{fmt(alert.actual)} on {formatDate(alert.transaction.date)}
+                      {alert.actual > alert.expected ? ' — Overpaid by ₹' + fmt(alert.actual - alert.expected) : ' — Underpaid by ₹' + fmt(alert.expected - alert.actual)}
+                    </p>
+                  </div>
+                </div>
+                <button onClick={() => setActiveTab('transactions')}
+                  style={{ background: `${S.orange}20`, border: `1px solid ${S.orange}40`, borderRadius: '8px', padding: '4px 12px', color: S.orange, cursor: 'pointer', fontSize: '11px', fontWeight: 700, flexShrink: 0 }}>
+                  Review
+                </button>
+              </div>
+            ))}
           </div>
         )}
 
@@ -1605,6 +1679,20 @@ export default function FinanceTracker() {
         {/* ─── TRANSACTIONS ────────────────────────────────────────────────────── */}
         {activeTab === 'transactions' && (
           <div>
+            {/* Import summary banner */}
+            {importSummary && (
+              <div style={{ background: `${S.emerald}12`, border: `1px solid ${S.emerald}30`, borderRadius: '12px', padding: '12px 16px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <span style={{ fontSize: '16px' }}>✅</span>
+                  <span style={{ color: S.emerald, fontSize: '13px', fontWeight: 600 }}>
+                    {importSummary.imported} transactions imported
+                    {importSummary.skipped > 0 && <span style={{ color: S.amber }}> · {importSummary.skipped} duplicates skipped</span>}
+                  </span>
+                </div>
+                <button onClick={() => setImportSummary(null)} style={{ background: 'none', border: 'none', color: S.muted, cursor: 'pointer', fontSize: '16px' }}>×</button>
+              </div>
+            )}
+
             {/* Manual entry form */}
             <div style={{ ...card, marginBottom: '20px', border: `1px solid ${S.emerald}22` }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
@@ -1654,6 +1742,19 @@ export default function FinanceTracker() {
               <p style={{ color: S.muted, fontSize: '13px', margin: 0 }}><span style={{ color: S.emerald, fontWeight: 700 }}>{transactions.length}</span> transactions</p>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button onClick={() => setActiveTab('upload')} style={{ background: `${S.blue}15`, border: `1px solid ${S.blue}30`, borderRadius: '8px', padding: '5px 12px', color: S.blue, cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>📂 Import CSV</button>
+                {duplicatePaymentAlerts.length > 0 && (
+                  <button onClick={() => {
+                    const seen = new Set();
+                    setTransactions(prev => prev.filter(t => {
+                      const k = txKey(t);
+                      if (seen.has(k)) return false;
+                      seen.add(k);
+                      return true;
+                    }));
+                  }} style={{ background: `${S.amber}15`, border: `1px solid ${S.amber}35`, borderRadius: '8px', padding: '5px 12px', color: S.amber, cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>
+                    ⚠️ Remove {duplicatePaymentAlerts.reduce((s,g) => s + g.length - 1, 0)} duplicate{duplicatePaymentAlerts.reduce((s,g) => s + g.length - 1, 0) !== 1 ? 's' : ''}
+                  </button>
+                )}
                 {transactions.length > 0 && <button onClick={() => { if (confirm('Clear all?')) setTransactions([]); }} style={{ background: `${S.red}15`, border: `1px solid ${S.red}30`, borderRadius: '8px', padding: '5px 12px', color: S.red, cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>Clear all</button>}
               </div>
             </div>
@@ -1665,20 +1766,27 @@ export default function FinanceTracker() {
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {transactions.map(t => (
-                  <div key={t.id} style={{ ...card, padding: '13px 16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ color: S.text, fontSize: '13px', fontWeight: 500, margin: '0 0 3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{maskAccount(t.description)}</p>
-                      <p style={{ color: S.muted, fontSize: '11px', margin: 0 }}>{formatDate(t.date)}</p>
+                {transactions.map(t => {
+                  const dupKey = `${(t.date || '').slice(0, 7)}_${parseFloat(t.amount).toFixed(2)}_${t.description.slice(0, 20).toLowerCase().trim()}`;
+                  const isDup = duplicatePaymentAlerts.some(g => g.some(d => d.id === t.id));
+                  return (
+                    <div key={t.id} style={{ ...card, padding: '13px 16px', display: 'flex', alignItems: 'center', gap: '12px', border: isDup ? `1px solid ${S.amber}50` : `1px solid ${S.border}`, background: isDup ? `${S.amber}08` : S.card }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          {isDup && <span style={{ fontSize: '12px' }} title="Possible duplicate">⚠️</span>}
+                          <p style={{ color: S.text, fontSize: '13px', fontWeight: 500, margin: '0 0 3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{maskAccount(t.description)}</p>
+                        </div>
+                        <p style={{ color: S.muted, fontSize: '11px', margin: 0 }}>{formatDate(t.date)}</p>
+                      </div>
+                      <span style={{ color: isDup ? S.amber : S.emerald, fontWeight: 700, fontSize: '14px', flexShrink: 0 }}>₹{fmt(t.amount)}</span>
+                      <select value={t.category} onChange={e => setTransactions(p => p.map(x => x.id === t.id ? { ...x, category: e.target.value } : x))}
+                        style={{ background: S.deep, border: `1px solid ${S.border}`, borderRadius: '8px', padding: '5px 8px', color: S.textDim, fontSize: '11px', cursor: 'pointer', outline: 'none' }}>
+                        {DEFAULT_CATEGORIES.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                      </select>
+                      <button onClick={() => setTransactions(p => p.filter(x => x.id !== t.id))} style={{ background: 'none', border: 'none', color: S.muted, cursor: 'pointer', fontSize: '18px' }}>×</button>
                     </div>
-                    <span style={{ color: S.emerald, fontWeight: 700, fontSize: '14px', flexShrink: 0 }}>₹{fmt(t.amount)}</span>
-                    <select value={t.category} onChange={e => setTransactions(p => p.map(x => x.id === t.id ? { ...x, category: e.target.value } : x))}
-                      style={{ background: S.deep, border: `1px solid ${S.border}`, borderRadius: '8px', padding: '5px 8px', color: S.textDim, fontSize: '11px', cursor: 'pointer', outline: 'none' }}>
-                      {DEFAULT_CATEGORIES.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                    </select>
-                    <button onClick={() => setTransactions(p => p.filter(x => x.id !== t.id))} style={{ background: 'none', border: 'none', color: S.muted, cursor: 'pointer', fontSize: '18px' }}>×</button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
