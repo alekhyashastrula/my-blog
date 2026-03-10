@@ -139,8 +139,18 @@ export default function FinanceTracker() {
     return `${d.toLocaleString('default', { month: 'long' })} ${d.getFullYear()}`;
   });
 
-  // Auto-hide all wallet reveals when tab changes
-  useEffect(() => { setRevealedWallets(new Set()); }, [activeTab, cryptoSubTab]);
+  // Balance PIN state
+  const [bankBalance, setBankBalance] = useState('');
+  const [balancePin, setBalancePin] = useState('');
+  const [balanceRevealed, setBalanceRevealed] = useState(false);
+  const [pinModal, setPinModal] = useState(''); // 'unlock' | 'set' | 'change' | 'edit_balance' | ''
+  const [pinInput, setPinInput] = useState('');
+  const [pinConfirm, setPinConfirm] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [pendingBalance, setPendingBalance] = useState('');
+
+  // Auto-hide all wallet reveals and balances when tab changes
+  useEffect(() => { setRevealedWallets(new Set()); setBalanceRevealed(false); }, [activeTab, cryptoSubTab]);
 
   // Load from localStorage
   useEffect(() => {
@@ -152,6 +162,10 @@ export default function FinanceTracker() {
     load('crypto_txs', setCryptoTxs);
     load('finance_wallets', setWallets);
     load('finance_spending_history', setSpendingHistory);
+    const pin = localStorage.getItem('finance_balance_pin');
+    if (pin) setBalancePin(pin);
+    const bal = localStorage.getItem('finance_bank_balance');
+    if (bal) setBankBalance(bal);
   }, []);
 
   useEffect(() => { localStorage.setItem('finance_transactions', JSON.stringify(transactions)); }, [transactions]);
@@ -161,6 +175,8 @@ export default function FinanceTracker() {
   useEffect(() => { localStorage.setItem('crypto_txs', JSON.stringify(cryptoTxs)); }, [cryptoTxs]);
   useEffect(() => { localStorage.setItem('finance_wallets', JSON.stringify(wallets)); }, [wallets]);
   useEffect(() => { localStorage.setItem('finance_spending_history', JSON.stringify(spendingHistory)); }, [spendingHistory]);
+  useEffect(() => { localStorage.setItem('finance_bank_balance', bankBalance); }, [bankBalance]);
+  useEffect(() => { if (balancePin) localStorage.setItem('finance_balance_pin', balancePin); }, [balancePin]);
 
   // Fetch live prices
   const fetchPrices = useCallback(async () => {
@@ -304,10 +320,96 @@ export default function FinanceTracker() {
     });
   }
 
+  // ── PIN / Balance helpers ─────────────────────────────────────────────────────
+
+  function openBalanceModal() {
+    setPinInput(''); setPinConfirm(''); setPinError('');
+    setPinModal(balancePin ? 'unlock' : 'set');
+  }
+
+  function submitUnlock() {
+    if (pinInput === balancePin) {
+      setBalanceRevealed(true);
+      setPinModal('');
+      setPinInput('');
+      setPinError('');
+    } else {
+      setPinError('Incorrect PIN. Try again.');
+    }
+  }
+
+  function submitSetPin() {
+    if (pinInput.length < 4) { setPinError('PIN must be at least 4 digits.'); return; }
+    if (pinInput !== pinConfirm) { setPinError('PINs do not match.'); return; }
+    setBalancePin(pinInput);
+    setBalanceRevealed(true);
+    setPinModal('');
+    setPinInput(''); setPinConfirm(''); setPinError('');
+  }
+
+  function submitEditBalance() {
+    setBankBalance(pendingBalance);
+    setPinModal('');
+    setPendingBalance('');
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
     <div style={{ background: S.dark, minHeight: '100vh', color: S.text, fontFamily: 'system-ui, sans-serif' }}>
+
+      {/* ── PIN MODAL ──────────────────────────────────────────────────────────── */}
+      {pinModal && (
+        <div style={{ position: 'fixed', inset: 0, background: '#000000cc', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          onClick={e => { if (e.target === e.currentTarget) { setPinModal(''); setPinInput(''); setPinConfirm(''); setPinError(''); } }}>
+          <div style={{ ...card, width: '320px', display: 'flex', flexDirection: 'column', gap: '14px', boxShadow: `0 0 40px ${S.green}22` }}>
+            <p style={{ color: S.green, fontSize: '11px', letterSpacing: '2px', textTransform: 'uppercase', margin: 0, fontWeight: 600 }}>
+              {pinModal === 'set' ? '🔐 Set Balance PIN' : pinModal === 'unlock' ? '🔓 Enter PIN' : pinModal === 'change' ? '🔑 Change PIN' : '💰 Update Bank Balance'}
+            </p>
+
+            {pinModal === 'edit_balance' ? (
+              <>
+                <p style={{ color: S.muted, fontSize: '12px', margin: 0 }}>Enter your current bank balance manually.</p>
+                <input type="number" placeholder="e.g. 125000" value={pendingBalance}
+                  onChange={e => setPendingBalance(e.target.value)} autoFocus
+                  onKeyDown={e => e.key === 'Enter' && submitEditBalance()}
+                  style={{ ...input }} />
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={() => { setPinModal(''); setPendingBalance(''); }} style={{ flex: 1, background: 'none', border: `1px solid ${S.border}`, borderRadius: '8px', padding: '10px', color: S.muted, cursor: 'pointer', fontWeight: 600 }}>Cancel</button>
+                  <button onClick={submitEditBalance} style={{ flex: 1, background: S.green, border: 'none', borderRadius: '8px', padding: '10px', color: '#000', cursor: 'pointer', fontWeight: 700 }}>Save</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <input type="password" inputMode="numeric" maxLength={8} placeholder="Enter PIN"
+                  value={pinInput} onChange={e => { setPinInput(e.target.value); setPinError(''); }} autoFocus
+                  onKeyDown={e => e.key === 'Enter' && (pinModal === 'unlock' ? submitUnlock() : null)}
+                  style={{ ...input, letterSpacing: '6px', textAlign: 'center', fontSize: '20px' }} />
+                {(pinModal === 'set' || pinModal === 'change') && (
+                  <input type="password" inputMode="numeric" maxLength={8} placeholder="Confirm PIN"
+                    value={pinConfirm} onChange={e => { setPinConfirm(e.target.value); setPinError(''); }}
+                    onKeyDown={e => e.key === 'Enter' && submitSetPin()}
+                    style={{ ...input, letterSpacing: '6px', textAlign: 'center', fontSize: '20px' }} />
+                )}
+                {pinError && <p style={{ color: S.red, fontSize: '12px', margin: 0 }}>{pinError}</p>}
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={() => { setPinModal(''); setPinInput(''); setPinConfirm(''); setPinError(''); }} style={{ flex: 1, background: 'none', border: `1px solid ${S.border}`, borderRadius: '8px', padding: '10px', color: S.muted, cursor: 'pointer', fontWeight: 600 }}>Cancel</button>
+                  <button onClick={pinModal === 'unlock' ? submitUnlock : submitSetPin} style={{ flex: 1, background: S.green, border: 'none', borderRadius: '8px', padding: '10px', color: '#000', cursor: 'pointer', fontWeight: 700 }}>
+                    {pinModal === 'unlock' ? 'Unlock' : 'Set PIN'}
+                  </button>
+                </div>
+                {pinModal === 'unlock' && balancePin && (
+                  <button onClick={() => { setPinModal('change'); setPinInput(''); setPinConfirm(''); setPinError(''); }}
+                    style={{ background: 'none', border: 'none', color: S.faint, cursor: 'pointer', fontSize: '11px', textDecoration: 'underline' }}>
+                    Change PIN
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       <div style={{ maxWidth: '960px', margin: '0 auto', padding: '40px 24px' }}>
 
         {/* Header */}
@@ -361,6 +463,59 @@ export default function FinanceTracker() {
         {/* ─── DASHBOARD ──────────────────────────────────────────────────────── */}
         {activeTab === 'dashboard' && (
           <div>
+            {/* Balance Cards — PIN protected */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '28px' }}>
+              {/* Bank Balance */}
+              <div style={{ ...card, boxShadow: `0 0 20px #3b82f622`, position: 'relative' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <p style={{ color: '#3b82f6', fontSize: '10px', letterSpacing: '1px', textTransform: 'uppercase', margin: '0 0 8px', fontWeight: 600 }}>Bank Balance</p>
+                    <p style={{ fontSize: '26px', fontWeight: 700, color: S.text, margin: 0, letterSpacing: balanceRevealed ? 'normal' : '4px' }}>
+                      {balanceRevealed ? (bankBalance ? `₹${fmt(parseFloat(bankBalance))}` : <span style={{ color: S.faint, fontSize: '14px' }}>Not set</span>) : '••••••••'}
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-end' }}>
+                    <button onClick={balanceRevealed ? () => setBalanceRevealed(false) : openBalanceModal}
+                      style={{ background: 'none', border: `1px solid ${S.border}`, borderRadius: '6px', padding: '4px 10px', color: balanceRevealed ? S.green : S.muted, cursor: 'pointer', fontSize: '11px' }}>
+                      {balanceRevealed ? '🙈 Hide' : '👁 Show'}
+                    </button>
+                    {balanceRevealed && (
+                      <button onClick={() => { setPendingBalance(bankBalance); setPinModal('edit_balance'); }}
+                        style={{ background: 'none', border: `1px solid ${S.border}`, borderRadius: '6px', padding: '4px 10px', color: S.muted, cursor: 'pointer', fontSize: '10px' }}>
+                        ✏️ Edit
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {balanceRevealed && !balancePin && (
+                  <button onClick={() => { setPinInput(''); setPinConfirm(''); setPinError(''); setPinModal('set'); }}
+                    style={{ marginTop: '10px', background: 'none', border: 'none', color: S.faint, cursor: 'pointer', fontSize: '10px', padding: 0, textDecoration: 'underline' }}>
+                    + Set PIN to protect balances
+                  </button>
+                )}
+              </div>
+              {/* Crypto Portfolio */}
+              <div style={{ ...card, boxShadow: `0 0 20px ${S.green}11` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <p style={{ color: S.green, fontSize: '10px', letterSpacing: '1px', textTransform: 'uppercase', margin: '0 0 8px', fontWeight: 600 }}>Crypto Portfolio</p>
+                    <p style={{ fontSize: '26px', fontWeight: 700, color: S.text, margin: 0, letterSpacing: balanceRevealed ? 'normal' : '4px' }}>
+                      {balanceRevealed ? `₹${fmt(totalPortfolioINR)}` : '••••••••'}
+                    </p>
+                    {balanceRevealed && totalPnL !== 0 && (
+                      <p style={{ color: totalPnL >= 0 ? S.green : S.red, fontSize: '12px', margin: '4px 0 0', fontWeight: 600 }}>
+                        {totalPnL >= 0 ? '+' : ''}₹{fmt(totalPnL)} P&L
+                      </p>
+                    )}
+                  </div>
+                  <button onClick={balanceRevealed ? () => setBalanceRevealed(false) : openBalanceModal}
+                    style={{ background: 'none', border: `1px solid ${S.border}`, borderRadius: '6px', padding: '4px 10px', color: balanceRevealed ? S.green : S.muted, cursor: 'pointer', fontSize: '11px' }}>
+                    {balanceRevealed ? '🙈 Hide' : '👁 Show'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
             {/* Month picker */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '22px', flexWrap: 'wrap', gap: '10px' }}>
               <div>
