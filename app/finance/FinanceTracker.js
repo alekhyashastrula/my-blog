@@ -106,6 +106,7 @@ const card = { background: S.card, border: `1px solid ${S.border}`, borderRadius
 
 export default function FinanceTracker() {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [dashMonth, setDashMonth] = useState(() => today().slice(0, 7)); // YYYY-MM
 
   // Finance state
   const [transactions, setTransactions] = useState([]);
@@ -128,7 +129,7 @@ export default function FinanceTracker() {
 
   // Wallet state
   const [wallets, setWallets] = useState([]);
-  const [newWallet, setNewWallet] = useState({ name: '', address: '', network: 'Ethereum', app: '' });
+  const [newWallet, setNewWallet] = useState({ name: '', addresses: [''], network: 'Ethereum', app: '' });
   const [revealedWallets, setRevealedWallets] = useState(new Set()); // NOT persisted — auto-hides on nav
 
   // Spending history state
@@ -253,12 +254,20 @@ export default function FinanceTracker() {
   });
   const totalPnL = totalPortfolioINR - totalCostBasis;
 
-  // Finance calculations
+  // Finance calculations — filtered by selected month
+  const filteredTxs = dashMonth
+    ? transactions.filter(t => {
+        const d = new Date(t.date);
+        if (isNaN(d)) return false;
+        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        return ym === dashMonth;
+      })
+    : transactions;
   const spending = {};
-  transactions.forEach(t => { spending[t.category] = (spending[t.category] || 0) + t.amount; });
+  filteredTxs.forEach(t => { spending[t.category] = (spending[t.category] || 0) + t.amount; });
   const totalSpent = Object.values(spending).reduce((a, b) => a + b, 0);
-  const mandatorySpent = transactions.filter(t => DEFAULT_CATEGORIES.find(c => c.name === t.category && c.type === 'mandatory')).reduce((a, t) => a + t.amount, 0);
-  const unnecessarySpent = transactions.filter(t => DEFAULT_CATEGORIES.find(c => c.name === t.category && c.type === 'unnecessary')).reduce((a, t) => a + t.amount, 0);
+  const mandatorySpent = filteredTxs.filter(t => DEFAULT_CATEGORIES.find(c => c.name === t.category && c.type === 'mandatory')).reduce((a, t) => a + t.amount, 0);
+  const unnecessarySpent = filteredTxs.filter(t => DEFAULT_CATEGORIES.find(c => c.name === t.category && c.type === 'unnecessary')).reduce((a, t) => a + t.amount, 0);
   const budgetAlerts = Object.entries(budgets).filter(([cat, budget]) => budget > 0 && (spending[cat] || 0) > budget).map(([cat]) => cat);
   const reminderAlerts = reminders.filter(r => !r.done && daysDiff(r.date) <= 0);
   const upcomingReminders = reminders.filter(r => !r.done && daysDiff(r.date) > 0 && daysDiff(r.date) <= 3);
@@ -281,9 +290,10 @@ export default function FinanceTracker() {
   }
 
   function addWallet() {
-    if (!newWallet.name.trim() || !newWallet.address.trim()) return;
-    setWallets(prev => [...prev, { id: Date.now(), ...newWallet }]);
-    setNewWallet({ name: '', address: '', network: 'Ethereum', app: '' });
+    const validAddresses = newWallet.addresses.filter(a => a.trim());
+    if (!newWallet.name.trim() || validAddresses.length === 0) return;
+    setWallets(prev => [...prev, { id: Date.now(), name: newWallet.name, network: newWallet.network, app: newWallet.app, addresses: validAddresses }]);
+    setNewWallet({ name: '', addresses: [''], network: 'Ethereum', app: '' });
   }
 
   function toggleReveal(id) {
@@ -351,6 +361,28 @@ export default function FinanceTracker() {
         {/* ─── DASHBOARD ──────────────────────────────────────────────────────── */}
         {activeTab === 'dashboard' && (
           <div>
+            {/* Month picker */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '22px', flexWrap: 'wrap', gap: '10px' }}>
+              <div>
+                <p style={{ color: S.text, fontSize: '18px', fontWeight: 700, margin: 0 }}>
+                  {dashMonth ? new Date(dashMonth + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }) : 'All Time'}
+                </p>
+                <p style={{ color: S.faint, fontSize: '11px', margin: '3px 0 0' }}>
+                  Today: {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                  {' · '}{filteredTxs.length} transaction{filteredTxs.length !== 1 ? 's' : ''}
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <input type="month" value={dashMonth}
+                  onChange={e => setDashMonth(e.target.value)}
+                  style={{ background: S.deep, border: `1px solid ${S.border}`, borderRadius: '8px', padding: '7px 12px', color: S.text, fontSize: '13px', outline: 'none', cursor: 'pointer' }} />
+                <button onClick={() => setDashMonth('')}
+                  style={{ background: 'none', border: `1px solid ${S.border}`, borderRadius: '8px', padding: '7px 12px', color: dashMonth === '' ? S.green : S.muted, cursor: 'pointer', fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                  All Time
+                </button>
+              </div>
+            </div>
+
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '14px', marginBottom: '36px' }}>
               {[
                 { label: 'Total Spent', value: `₹${fmt(totalSpent)}`, color: S.green },
@@ -367,7 +399,7 @@ export default function FinanceTracker() {
             {Object.keys(spending).length === 0 ? (
               <div style={{ textAlign: 'center', padding: '50px 0', color: S.faint }}>
                 <p style={{ fontSize: '36px', margin: '0 0 10px' }}>📂</p>
-                <p>Upload a CSV to see spending breakdown.</p>
+                <p>{dashMonth && transactions.length > 0 ? `No transactions found for ${new Date(dashMonth + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}.` : 'Upload a CSV to see spending breakdown.'}</p>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -646,10 +678,25 @@ export default function FinanceTracker() {
                       <input type="text" placeholder="e.g. MetaMask, Binance, Ledger" value={newWallet.app}
                         onChange={e => setNewWallet(p => ({ ...p, app: e.target.value }))} style={{ ...input }} />
                     </div>
-                    <div>
-                      <p style={{ color: S.muted, fontSize: '11px', marginBottom: '6px', letterSpacing: '1px' }}>WALLET ADDRESS</p>
-                      <input type="text" placeholder="0x..." value={newWallet.address}
-                        onChange={e => setNewWallet(p => ({ ...p, address: e.target.value }))} style={{ ...input }} />
+                  </div>
+                  <div>
+                    <p style={{ color: S.muted, fontSize: '11px', marginBottom: '8px', letterSpacing: '1px' }}>WALLET ADDRESSES</p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {newWallet.addresses.map((addr, i) => (
+                        <div key={i} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <input type="text" placeholder={`Address ${i + 1} — 0x...`} value={addr}
+                            onChange={e => setNewWallet(p => { const a = [...p.addresses]; a[i] = e.target.value; return { ...p, addresses: a }; })}
+                            style={{ ...input, flex: 1 }} />
+                          {newWallet.addresses.length > 1 && (
+                            <button onClick={() => setNewWallet(p => ({ ...p, addresses: p.addresses.filter((_, j) => j !== i) }))}
+                              style={{ background: 'none', border: `1px solid ${S.border}`, borderRadius: '6px', padding: '6px 10px', color: S.red, cursor: 'pointer', fontSize: '16px', flexShrink: 0 }}>×</button>
+                          )}
+                        </div>
+                      ))}
+                      <button onClick={() => setNewWallet(p => ({ ...p, addresses: [...p.addresses, ''] }))}
+                        style={{ background: 'none', border: `1px dashed ${S.border}`, borderRadius: '7px', padding: '8px', color: S.muted, cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>
+                        + Add Another Address
+                      </button>
                     </div>
                   </div>
                   <button onClick={addWallet} style={{ background: S.green, color: '#000', border: 'none', borderRadius: '8px', padding: '11px', fontWeight: 700, cursor: 'pointer', fontSize: '14px' }}>Save Wallet</button>
@@ -661,28 +708,40 @@ export default function FinanceTracker() {
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     {wallets.map(w => {
-                      const revealed = revealedWallets.has(w.id);
+                      const addrs = w.addresses || (w.address ? [w.address] : []);
                       return (
-                        <div key={w.id} style={{ ...card, display: 'flex', alignItems: 'center', gap: '14px' }}>
-                          <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: S.greenDim, border: `1px solid ${S.green}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', flexShrink: 0 }}>
-                            🔐
-                          </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                              <p style={{ color: S.text, fontSize: '14px', fontWeight: 600, margin: 0 }}>{w.name}</p>
-                              <span style={{ fontSize: '10px', color: S.green, background: S.greenDim, padding: '2px 7px', borderRadius: '5px' }}>{w.network}</span>
-                              {w.app && <span style={{ fontSize: '10px', color: S.muted }}>{w.app}</span>}
+                        <div key={w.id} style={{ ...card }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: addrs.length > 0 ? '12px' : 0 }}>
+                            <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: S.greenDim, border: `1px solid ${S.green}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', flexShrink: 0 }}>
+                              🔐
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <code style={{ fontSize: '12px', color: revealed ? S.green : S.faint, fontFamily: 'monospace', background: S.deep, padding: '4px 10px', borderRadius: '6px', letterSpacing: revealed ? '0.5px' : '2px' }}>
-                                {revealed ? w.address : '••••••••••••••••••••••••••••••••••••••••'}
-                              </code>
-                              <button onClick={() => toggleReveal(w.id)} style={{ background: 'none', border: `1px solid ${S.border}`, borderRadius: '6px', padding: '3px 10px', color: revealed ? S.green : S.muted, cursor: 'pointer', fontSize: '11px', flexShrink: 0 }}>
-                                {revealed ? '🙈 Hide' : '👁 Show'}
-                              </button>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <p style={{ color: S.text, fontSize: '14px', fontWeight: 600, margin: 0 }}>{w.name}</p>
+                                <span style={{ fontSize: '10px', color: S.green, background: S.greenDim, padding: '2px 7px', borderRadius: '5px' }}>{w.network}</span>
+                                {w.app && <span style={{ fontSize: '10px', color: S.muted }}>{w.app}</span>}
+                                <span style={{ fontSize: '10px', color: S.faint }}>{addrs.length} address{addrs.length !== 1 ? 'es' : ''}</span>
+                              </div>
                             </div>
+                            <button onClick={() => setWallets(p => p.filter(x => x.id !== w.id))} style={{ background: 'none', border: 'none', color: S.faint, cursor: 'pointer', fontSize: '18px', flexShrink: 0 }}>×</button>
                           </div>
-                          <button onClick={() => setWallets(p => p.filter(x => x.id !== w.id))} style={{ background: 'none', border: 'none', color: S.faint, cursor: 'pointer', fontSize: '18px', flexShrink: 0 }}>×</button>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {addrs.map((addr, i) => {
+                              const revKey = `${w.id}-${i}`;
+                              const revealed = revealedWallets.has(revKey);
+                              return (
+                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  {addrs.length > 1 && <span style={{ color: S.faint, fontSize: '10px', width: '14px', flexShrink: 0 }}>{i + 1}</span>}
+                                  <code style={{ flex: 1, fontSize: '12px', color: revealed ? S.green : S.faint, fontFamily: 'monospace', background: S.deep, padding: '6px 10px', borderRadius: '6px', letterSpacing: revealed ? '0.5px' : '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {revealed ? addr : '••••••••••••••••••••••••••••••••••••••••'}
+                                  </code>
+                                  <button onClick={() => toggleReveal(revKey)} style={{ background: 'none', border: `1px solid ${S.border}`, borderRadius: '6px', padding: '3px 10px', color: revealed ? S.green : S.muted, cursor: 'pointer', fontSize: '11px', flexShrink: 0 }}>
+                                    {revealed ? '🙈 Hide' : '👁 Show'}
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
                       );
                     })}
