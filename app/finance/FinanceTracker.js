@@ -180,6 +180,7 @@ export default function FinanceTracker() {
   const [budgets, setBudgets] = useState({});
   const [notes, setNotes] = useState([]);
   const [newNote, setNewNote] = useState('');
+  const [newTx, setNewTx] = useState({ date: today(), description: '', amount: '', category: 'Other' });
   const [reminders, setReminders] = useState([]);
   const [newReminder, setNewReminder] = useState({ title: '', date: today(), amount: '' });
 
@@ -1604,11 +1605,65 @@ export default function FinanceTracker() {
         {/* ─── TRANSACTIONS ────────────────────────────────────────────────────── */}
         {activeTab === 'transactions' && (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
-              <p style={{ color: S.muted, fontSize: '13px', margin: 0 }}><span style={{ color: S.emerald, fontWeight: 700 }}>{transactions.length}</span> transactions</p>
-              {transactions.length > 0 && <button onClick={() => { if (confirm('Clear all?')) setTransactions([]); }} style={{ background: `${S.red}15`, border: `1px solid ${S.red}30`, borderRadius: '8px', padding: '5px 12px', color: S.red, cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>Clear all</button>}
+            {/* Manual entry form */}
+            <div style={{ ...card, marginBottom: '20px', border: `1px solid ${S.emerald}22` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+                <div style={{ width: '30px', height: '30px', borderRadius: '8px', background: `${S.emerald}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px' }}>✏️</div>
+                <p style={{ color: S.emerald, fontSize: '11px', letterSpacing: '2px', textTransform: 'uppercase', margin: 0, fontWeight: 700 }}>Add Transaction Manually</p>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ gridColumn: '1/-1' }}>
+                  <p style={{ color: S.muted, fontSize: '11px', marginBottom: '6px', letterSpacing: '1px', fontWeight: 600 }}>DESCRIPTION</p>
+                  <input type="text" placeholder="e.g. Grocery store, Rent, Netflix..."
+                    value={newTx.description} onChange={e => setNewTx(p => ({ ...p, description: e.target.value }))}
+                    style={{ ...input }} />
+                </div>
+                <div>
+                  <p style={{ color: S.muted, fontSize: '11px', marginBottom: '6px', letterSpacing: '1px', fontWeight: 600 }}>AMOUNT (₹)</p>
+                  <input type="number" placeholder="0.00"
+                    value={newTx.amount} onChange={e => setNewTx(p => ({ ...p, amount: e.target.value }))}
+                    style={{ ...input }} />
+                </div>
+                <div>
+                  <p style={{ color: S.muted, fontSize: '11px', marginBottom: '6px', letterSpacing: '1px', fontWeight: 600 }}>DATE</p>
+                  <input type="date" value={newTx.date}
+                    onChange={e => setNewTx(p => ({ ...p, date: e.target.value }))}
+                    style={{ ...input }} />
+                </div>
+                <div style={{ gridColumn: '1/-1' }}>
+                  <p style={{ color: S.muted, fontSize: '11px', marginBottom: '6px', letterSpacing: '1px', fontWeight: 600 }}>CATEGORY</p>
+                  <select value={newTx.category} onChange={e => setNewTx(p => ({ ...p, category: e.target.value }))} style={{ ...input }}>
+                    {DEFAULT_CATEGORIES.map(c => <option key={c.name} value={c.name}>{c.name} ({c.type})</option>)}
+                  </select>
+                </div>
+              </div>
+              <button
+                disabled={!newTx.description.trim() || !newTx.amount}
+                onClick={() => {
+                  if (!newTx.description.trim() || !newTx.amount) return;
+                  setTransactions(p => [{ id: Date.now(), date: newTx.date, description: newTx.description.trim(), amount: Math.abs(parseFloat(newTx.amount)), category: newTx.category }, ...p]);
+                  setNewTx({ date: today(), description: '', amount: '', category: 'Other' });
+                }}
+                style={{ marginTop: '14px', background: (!newTx.description.trim() || !newTx.amount) ? S.faint : `linear-gradient(135deg, ${S.emerald}, ${S.cyan})`, color: '#000', border: 'none', borderRadius: '12px', padding: '12px', fontWeight: 700, cursor: (!newTx.description.trim() || !newTx.amount) ? 'not-allowed' : 'pointer', fontSize: '14px', width: '100%', opacity: (!newTx.description.trim() || !newTx.amount) ? 0.5 : 1 }}>
+                + Add Transaction
+              </button>
             </div>
-            {transactions.length === 0 ? <p style={{ color: S.muted, textAlign: 'center', padding: '60px 0' }}>No transactions. Go to Upload to import a CSV.</p> : (
+
+            {/* List header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <p style={{ color: S.muted, fontSize: '13px', margin: 0 }}><span style={{ color: S.emerald, fontWeight: 700 }}>{transactions.length}</span> transactions</p>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={() => setActiveTab('upload')} style={{ background: `${S.blue}15`, border: `1px solid ${S.blue}30`, borderRadius: '8px', padding: '5px 12px', color: S.blue, cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>📂 Import CSV</button>
+                {transactions.length > 0 && <button onClick={() => { if (confirm('Clear all?')) setTransactions([]); }} style={{ background: `${S.red}15`, border: `1px solid ${S.red}30`, borderRadius: '8px', padding: '5px 12px', color: S.red, cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>Clear all</button>}
+              </div>
+            </div>
+
+            {transactions.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '50px 0', color: S.muted }}>
+                <p style={{ fontSize: '40px', margin: '0 0 12px' }}>📋</p>
+                <p>No transactions yet. Add one manually above or import a CSV.</p>
+              </div>
+            ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {transactions.map(t => (
                   <div key={t.id} style={{ ...card, padding: '13px 16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -1659,6 +1714,9 @@ export default function FinanceTracker() {
         {/* ─── UPLOAD ─────────────────────────────────────────────────────────── */}
         {activeTab === 'upload' && (
           <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+              <p style={{ color: S.muted, fontSize: '13px', margin: 0 }}>Upload a bank statement CSV to bulk import transactions. Or enter them manually in the <button onClick={() => setActiveTab('transactions')} style={{ background: 'none', border: 'none', color: S.blue, cursor: 'pointer', fontSize: '13px', padding: 0, textDecoration: 'underline', fontWeight: 600 }}>Transactions tab</button>.</p>
+            </div>
             <label style={{ display: 'block', border: `2px dashed ${S.rose}40`, borderRadius: '20px', padding: '70px 20px', textAlign: 'center', cursor: 'pointer', background: `${S.rose}05`, transition: 'all 0.2s' }}>
               <p style={{ fontSize: '52px', margin: '0 0 16px' }}>📂</p>
               <p style={{ color: S.text, fontWeight: 700, fontSize: '17px', margin: '0 0 6px' }}>Upload Bank Statement CSV</p>
