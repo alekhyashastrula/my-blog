@@ -42,6 +42,24 @@ const COINS = [
   { id: 'usd-coin', symbol: 'USDC', name: 'USD Coin' },
 ];
 
+const LOAN_TYPES = [
+  { value: 'home_loan', label: 'Home Loan', icon: '🏠', color: '#3b82f6' },
+  { value: 'car_loan', label: 'Car Loan', icon: '🚗', color: '#f97316' },
+  { value: 'personal_loan', label: 'Personal Loan', icon: '💼', color: '#8b5cf6' },
+  { value: 'education_loan', label: 'Education Loan', icon: '🎓', color: '#06b6d4' },
+  { value: 'business_loan', label: 'Business Loan', icon: '🏢', color: '#10b981' },
+  { value: 'gold_loan', label: 'Gold Loan', icon: '🪙', color: '#f59e0b' },
+  { value: 'credit_card', label: 'Credit Card EMI', icon: '💳', color: '#ec4899' },
+  { value: 'two_wheeler', label: 'Two Wheeler Loan', icon: '🏍️', color: '#84cc16' },
+  { value: 'other', label: 'Other Loan', icon: '📋', color: '#64748b' },
+];
+
+const BANKS = [
+  'SBI','HDFC Bank','ICICI Bank','Axis Bank','Kotak Mahindra','Bank of Baroda',
+  'Punjab National Bank','Canara Bank','Union Bank','IDFC FIRST Bank','IndusInd Bank',
+  'Yes Bank','Federal Bank','South Indian Bank','HSBC','Citibank','Standard Chartered','Other',
+];
+
 const CRYPTO_TX_TYPES = [
   { value: 'buy', label: 'Buy', color: '#10b981' },
   { value: 'sell', label: 'Sell', color: '#ef4444' },
@@ -71,6 +89,7 @@ const TAB_COLORS = {
   transactions: '#10b981',
   budgets: '#f97316',
   upload: '#f43f5e',
+  loans: '#f43f5e',
 };
 
 // ─── Coin icon colours ────────────────────────────────────────────────────────
@@ -164,6 +183,16 @@ export default function FinanceTracker() {
   const [reminders, setReminders] = useState([]);
   const [newReminder, setNewReminder] = useState({ title: '', date: today(), amount: '' });
 
+  // Loans state
+  const [loans, setLoans] = useState([]);
+  const [loanSubTab, setLoanSubTab] = useState('overview');
+  const [expandedLoan, setExpandedLoan] = useState(null);
+  const [newLoan, setNewLoan] = useState({
+    name: '', bank: 'HDFC Bank', type: 'home_loan', accountNo: '',
+    totalAmount: '', emiAmount: '', interestRate: '', tenureMonths: '',
+    startDate: today(), emiDueDay: '5', notes: '',
+  });
+
   const [cryptoTxs, setCryptoTxs] = useState([]);
   const [prices, setPrices] = useState({});
   const [priceLoading, setPriceLoading] = useState(false);
@@ -204,6 +233,7 @@ export default function FinanceTracker() {
     load('crypto_txs', setCryptoTxs);
     load('finance_wallets', setWallets);
     load('finance_spending_history', setSpendingHistory);
+    load('finance_loans', setLoans);
     const pin = localStorage.getItem('finance_balance_pin');
     if (pin) setBalancePin(pin);
     const bal = localStorage.getItem('finance_bank_balance');
@@ -219,6 +249,7 @@ export default function FinanceTracker() {
   useEffect(() => { localStorage.setItem('finance_spending_history', JSON.stringify(spendingHistory)); }, [spendingHistory]);
   useEffect(() => { localStorage.setItem('finance_bank_balance', bankBalance); }, [bankBalance]);
   useEffect(() => { if (balancePin) localStorage.setItem('finance_balance_pin', balancePin); }, [balancePin]);
+  useEffect(() => { localStorage.setItem('finance_loans', JSON.stringify(loans)); }, [loans]);
 
   const fetchPrices = useCallback(async () => {
     setPriceLoading(true);
@@ -256,6 +287,57 @@ export default function FinanceTracker() {
       },
     });
   }
+
+  // ── Loan helpers ──────────────────────────────────────────────────────────────
+
+  function addLoan() {
+    if (!newLoan.name.trim() || !newLoan.totalAmount || !newLoan.emiAmount || !newLoan.tenureMonths) return;
+    setLoans(prev => [...prev, { id: Date.now(), ...newLoan, payments: [] }]);
+    setNewLoan({ name: '', bank: 'HDFC Bank', type: 'home_loan', accountNo: '', totalAmount: '', emiAmount: '', interestRate: '', tenureMonths: '', startDate: today(), emiDueDay: '5', notes: '' });
+    setLoanSubTab('overview');
+  }
+
+  function markEmiPaid(loanId, month, amount) {
+    setLoans(prev => prev.map(l => {
+      if (l.id !== loanId) return l;
+      const alreadyPaid = l.payments.some(p => p.month === month);
+      if (alreadyPaid) return l;
+      return { ...l, payments: [...l.payments, { id: Date.now(), month, date: today(), amount: amount || l.emiAmount }] };
+    }));
+  }
+
+  function undoEmiPayment(loanId, month) {
+    setLoans(prev => prev.map(l => l.id !== loanId ? l : { ...l, payments: l.payments.filter(p => p.month !== month) }));
+  }
+
+  function getLoanStats(loan) {
+    const tenure = parseInt(loan.tenureMonths) || 0;
+    const emi = parseFloat(loan.emiAmount) || 0;
+    const principal = parseFloat(loan.totalAmount) || 0;
+    const rate = parseFloat(loan.interestRate) || 0;
+    const paidCount = loan.payments.length;
+    const remainingEMIs = Math.max(0, tenure - paidCount);
+    const totalPayable = emi * tenure;
+    const totalInterest = totalPayable - principal;
+    const paidAmount = emi * paidCount;
+    const remainingAmount = emi * remainingEMIs;
+    const progressPct = tenure > 0 ? (paidCount / tenure) * 100 : 0;
+    // Next due date
+    const dueDay = parseInt(loan.emiDueDay) || 5;
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const currentMonthPaid = loan.payments.some(p => p.month === currentMonth);
+    let nextDue = new Date(now.getFullYear(), now.getMonth(), dueDay);
+    if (now.getDate() > dueDay || currentMonthPaid) nextDue = new Date(now.getFullYear(), now.getMonth() + 1, dueDay);
+    const daysToNext = Math.ceil((nextDue - now) / (1000 * 60 * 60 * 24));
+    return { tenure, emi, principal, rate, paidCount, remainingEMIs, totalPayable, totalInterest, paidAmount, remainingAmount, progressPct, currentMonth, currentMonthPaid, nextDue, daysToNext };
+  }
+
+  // EMI due alerts — loans where this month's EMI not yet paid
+  const emiDueAlerts = loans.filter(l => {
+    const stats = getLoanStats(l);
+    return !stats.currentMonthPaid && stats.remainingEMIs > 0;
+  });
 
   function addReminder() {
     if (!newReminder.title.trim() || !newReminder.date) return;
@@ -321,7 +403,7 @@ export default function FinanceTracker() {
   const reminderAlerts = reminders.filter(r => !r.done && daysDiff(r.date) <= 0);
   const upcomingReminders = reminders.filter(r => !r.done && daysDiff(r.date) > 0 && daysDiff(r.date) <= 3);
 
-  const tabs = ['dashboard', 'crypto', 'history', 'notes', 'reminders', 'transactions', 'budgets', 'upload'];
+  const tabs = ['dashboard', 'loans', 'crypto', 'history', 'notes', 'reminders', 'transactions', 'budgets', 'upload'];
 
   function saveSnapshot() {
     if (!historyLabel.trim()) return;
@@ -452,7 +534,7 @@ export default function FinanceTracker() {
         </div>
 
         {/* Alerts */}
-        {(budgetAlerts.length > 0 || reminderAlerts.length > 0 || upcomingReminders.length > 0) && (
+        {(budgetAlerts.length > 0 || reminderAlerts.length > 0 || upcomingReminders.length > 0 || emiDueAlerts.length > 0) && (
           <div style={{ marginBottom: '28px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {budgetAlerts.map(cat => (
               <div key={cat} style={{ background: `${S.red}12`, border: `1px solid ${S.red}30`, borderRadius: '12px', padding: '12px 16px', display: 'flex', gap: '10px', color: '#fca5a5', fontSize: '13px', alignItems: 'center' }}>
@@ -472,6 +554,21 @@ export default function FinanceTracker() {
                 <span><strong>{r.title}</strong> — Due in {daysDiff(r.date)}d {r.amount && `· ₹${r.amount}`}</span>
               </div>
             ))}
+            {emiDueAlerts.map(l => {
+              const lt = LOAN_TYPES.find(t => t.value === l.type);
+              return (
+                <div key={l.id} style={{ background: `${S.rose}12`, border: `1px solid ${S.rose}35`, borderRadius: '12px', padding: '12px 16px', display: 'flex', gap: '10px', color: '#fda4af', fontSize: '13px', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <span style={{ fontSize: '16px' }}>{lt?.icon || '💳'}</span>
+                    <span><strong>{l.name}</strong> — EMI due this month · ₹{fmt(parseFloat(l.emiAmount))}</span>
+                  </div>
+                  <button onClick={() => markEmiPaid(l.id, `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`, l.emiAmount)}
+                    style={{ background: `${S.emerald}20`, border: `1px solid ${S.emerald}40`, borderRadius: '8px', padding: '4px 12px', color: S.emerald, cursor: 'pointer', fontSize: '11px', fontWeight: 700, flexShrink: 0 }}>
+                    ✓ Mark Paid
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -492,6 +589,9 @@ export default function FinanceTracker() {
                 {tab === 'crypto' ? '₿ Crypto' : tab.charAt(0).toUpperCase() + tab.slice(1)}
                 {tab === 'reminders' && reminderAlerts.length > 0 && (
                   <span style={{ marginLeft: '5px', background: S.red, color: '#fff', borderRadius: '10px', padding: '1px 5px', fontSize: '10px' }}>{reminderAlerts.length}</span>
+                )}
+                {tab === 'loans' && emiDueAlerts.length > 0 && (
+                  <span style={{ marginLeft: '5px', background: S.rose, color: '#fff', borderRadius: '10px', padding: '1px 5px', fontSize: '10px' }}>{emiDueAlerts.length}</span>
                 )}
               </button>
             );
@@ -567,6 +667,53 @@ export default function FinanceTracker() {
               </div>
             </div>
 
+            {/* Loans summary on dashboard */}
+            {loans.length > 0 && (() => {
+              const totalOutstanding = loans.reduce((sum, l) => sum + getLoanStats(l).remainingAmount, 0);
+              const totalEMI = loans.reduce((sum, l) => sum + (parseFloat(l.emiAmount) || 0), 0);
+              return (
+                <div style={{ background: 'linear-gradient(135deg, #1f0a14 0%, #2d0e1e 100%)', border: `1px solid ${S.rose}30`, borderRadius: '18px', padding: '20px', marginBottom: '16px', boxShadow: `0 0 30px ${S.rose}10` }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '16px' }}>🏦</span>
+                      <span style={{ color: S.rose, fontSize: '11px', letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 700 }}>Active Loans & EMIs</span>
+                    </div>
+                    <button onClick={() => setActiveTab('loans')} style={{ background: `${S.rose}15`, border: `1px solid ${S.rose}30`, borderRadius: '8px', padding: '4px 12px', color: S.rose, cursor: 'pointer', fontSize: '11px', fontWeight: 600 }}>View All →</button>
+                  </div>
+                  <div style={{ display: 'flex', gap: '14px', marginBottom: '14px' }}>
+                    <div style={{ flex: 1 }}>
+                      <p style={{ color: S.muted, fontSize: '10px', letterSpacing: '1px', textTransform: 'uppercase', margin: '0 0 4px', fontWeight: 600 }}>Total Outstanding</p>
+                      <p style={{ color: S.rose, fontSize: '20px', fontWeight: 800, margin: 0 }}>₹{fmt(totalOutstanding)}</p>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <p style={{ color: S.muted, fontSize: '10px', letterSpacing: '1px', textTransform: 'uppercase', margin: '0 0 4px', fontWeight: 600 }}>Monthly EMI Outflow</p>
+                      <p style={{ color: S.amber, fontSize: '20px', fontWeight: 800, margin: 0 }}>₹{fmt(totalEMI)}</p>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <p style={{ color: S.muted, fontSize: '10px', letterSpacing: '1px', textTransform: 'uppercase', margin: '0 0 4px', fontWeight: 600 }}>Active Loans</p>
+                      <p style={{ color: S.text, fontSize: '20px', fontWeight: 800, margin: 0 }}>{loans.filter(l => getLoanStats(l).remainingEMIs > 0).length}</p>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {loans.filter(l => getLoanStats(l).remainingEMIs > 0).slice(0, 3).map(l => {
+                      const stats = getLoanStats(l);
+                      const lt = LOAN_TYPES.find(t => t.value === l.type);
+                      return (
+                        <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ fontSize: '14px' }}>{lt?.icon}</span>
+                          <span style={{ color: S.textDim, fontSize: '12px', flex: 1 }}>{l.name}</span>
+                          <span style={{ color: S.muted, fontSize: '11px' }}>{stats.remainingEMIs} EMIs left</span>
+                          <div style={{ width: '80px', height: '3px', background: S.faint, borderRadius: '4px' }}>
+                            <div style={{ height: '100%', width: `${stats.progressPct}%`, background: lt?.color || S.rose, borderRadius: '4px' }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Month picker */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '22px', flexWrap: 'wrap', gap: '12px' }}>
               <div>
@@ -641,6 +788,336 @@ export default function FinanceTracker() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ─── LOANS ──────────────────────────────────────────────────────────── */}
+        {activeTab === 'loans' && (
+          <div>
+            {/* Sub-tabs */}
+            <div style={{ display: 'flex', gap: '3px', marginBottom: '24px', background: S.deep, borderRadius: '12px', padding: '4px', border: `1px solid ${S.border}` }}>
+              {[['overview','📋 Overview'], ['add','+ Add Loan'], ['payments','💰 Payment History']].map(([st, label]) => (
+                <button key={st} onClick={() => setLoanSubTab(st)} style={{
+                  padding: '8px 16px', borderRadius: '9px', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: 600,
+                  background: loanSubTab === st ? `${S.rose}20` : 'transparent',
+                  color: loanSubTab === st ? S.rose : S.muted,
+                }}>{label}</button>
+              ))}
+            </div>
+
+            {/* ── OVERVIEW ── */}
+            {loanSubTab === 'overview' && (
+              <div>
+                {loans.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '70px 0', color: S.muted }}>
+                    <p style={{ fontSize: '52px', margin: '0 0 14px' }}>🏦</p>
+                    <p style={{ fontSize: '15px', fontWeight: 600, color: S.textDim, marginBottom: '8px' }}>No loans added yet</p>
+                    <p style={{ fontSize: '13px', marginBottom: '20px' }}>Track your EMIs, tenure, and outstanding balance.</p>
+                    <button onClick={() => setLoanSubTab('add')} style={{ background: `linear-gradient(135deg, ${S.rose}, ${S.pink})`, color: '#fff', border: 'none', borderRadius: '12px', padding: '11px 24px', fontWeight: 700, cursor: 'pointer', fontSize: '14px' }}>+ Add Your First Loan</button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {/* Summary row */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '12px', marginBottom: '4px' }}>
+                      {[
+                        { label: 'Total Outstanding', value: `₹${fmt(loans.reduce((s,l)=>s+getLoanStats(l).remainingAmount,0))}`, color: S.rose, bg: 'linear-gradient(135deg,#1f0a14,#2d0e1e)' },
+                        { label: 'Monthly EMI Total', value: `₹${fmt(loans.reduce((s,l)=>s+(parseFloat(l.emiAmount)||0),0))}`, color: S.amber, bg: 'linear-gradient(135deg,#1f1408,#2d1e0a)' },
+                        { label: 'Total Paid So Far', value: `₹${fmt(loans.reduce((s,l)=>s+getLoanStats(l).paidAmount,0))}`, color: S.emerald, bg: 'linear-gradient(135deg,#0a1f14,#0e2d1c)' },
+                      ].map(s => (
+                        <div key={s.label} style={{ background: s.bg, border: `1px solid ${s.color}25`, borderRadius: '14px', padding: '16px' }}>
+                          <p style={{ color: s.color, fontSize: '10px', letterSpacing: '1.5px', textTransform: 'uppercase', margin: '0 0 8px', fontWeight: 700 }}>{s.label}</p>
+                          <p style={{ color: S.text, fontSize: '20px', fontWeight: 800, margin: 0 }}>{s.value}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Loan cards */}
+                    {loans.map(loan => {
+                      const stats = getLoanStats(loan);
+                      const lt = LOAN_TYPES.find(t => t.value === loan.type);
+                      const lc = lt?.color || S.rose;
+                      const isExpanded = expandedLoan === loan.id;
+                      const yearsLeft = Math.floor(stats.remainingEMIs / 12);
+                      const monthsLeft = stats.remainingEMIs % 12;
+                      return (
+                        <div key={loan.id} style={{ ...card, border: `1px solid ${lc}25`, borderLeft: `4px solid ${lc}` }}>
+                          {/* Header row */}
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
+                            <div style={{ width: '46px', height: '46px', borderRadius: '14px', background: `${lc}20`, border: `1px solid ${lc}40`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px', flexShrink: 0 }}>
+                              {lt?.icon || '💳'}
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                <div>
+                                  <p style={{ color: S.text, fontSize: '15px', fontWeight: 700, margin: '0 0 3px' }}>{loan.name}</p>
+                                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                    <span style={{ color: lc, fontSize: '11px', background: `${lc}15`, padding: '2px 9px', borderRadius: '6px', fontWeight: 600 }}>{lt?.label}</span>
+                                    <span style={{ color: S.muted, fontSize: '12px' }}>🏦 {loan.bank}</span>
+                                    {loan.accountNo && <span style={{ color: S.muted, fontSize: '11px' }}>Acct: ****{loan.accountNo.slice(-4)}</span>}
+                                    {loan.interestRate && <span style={{ color: S.amber, fontSize: '11px' }}>{loan.interestRate}% p.a.</span>}
+                                  </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
+                                  <button onClick={() => setExpandedLoan(isExpanded ? null : loan.id)}
+                                    style={{ background: `${S.blue}15`, border: `1px solid ${S.blue}30`, borderRadius: '8px', padding: '5px 12px', color: S.blue, cursor: 'pointer', fontSize: '11px', fontWeight: 600 }}>
+                                    {isExpanded ? 'Less ▲' : 'Details ▼'}
+                                  </button>
+                                  <button onClick={() => { if (confirm('Delete this loan?')) setLoans(p => p.filter(x => x.id !== loan.id)); }}
+                                    style={{ background: 'none', border: 'none', color: S.muted, cursor: 'pointer', fontSize: '18px' }}>×</button>
+                                </div>
+                              </div>
+
+                              {/* Progress */}
+                              <div style={{ marginTop: '14px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                  <span style={{ color: S.muted, fontSize: '11px' }}>{stats.paidCount} of {stats.tenure} EMIs paid</span>
+                                  <span style={{ color: lc, fontSize: '11px', fontWeight: 700 }}>{stats.progressPct.toFixed(0)}% complete</span>
+                                </div>
+                                <div style={{ background: S.faint, borderRadius: '6px', height: '6px' }}>
+                                  <div style={{ height: '100%', width: `${stats.progressPct}%`, background: `linear-gradient(90deg, ${lc}, ${lc}99)`, borderRadius: '6px', boxShadow: `0 0 8px ${lc}60` }} />
+                                </div>
+                              </div>
+
+                              {/* Key stats */}
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '10px', marginTop: '14px' }}>
+                                {[
+                                  { label: 'Monthly EMI', value: `₹${fmt(stats.emi)}`, color: S.amber },
+                                  { label: 'Outstanding', value: `₹${fmt(stats.remainingAmount)}`, color: S.rose },
+                                  { label: 'Remaining', value: yearsLeft > 0 ? `${yearsLeft}y ${monthsLeft}m` : `${monthsLeft}m`, color: S.cyan },
+                                ].map(s => (
+                                  <div key={s.label} style={{ background: S.deep, borderRadius: '10px', padding: '10px 12px' }}>
+                                    <p style={{ color: S.muted, fontSize: '10px', letterSpacing: '1px', textTransform: 'uppercase', margin: '0 0 4px', fontWeight: 600 }}>{s.label}</p>
+                                    <p style={{ color: s.color, fontSize: '15px', fontWeight: 700, margin: 0 }}>{s.value}</p>
+                                  </div>
+                                ))}
+                              </div>
+
+                              {/* This month EMI */}
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '14px', padding: '12px 14px', background: stats.currentMonthPaid ? `${S.emerald}10` : `${S.rose}10`, borderRadius: '10px', border: `1px solid ${stats.currentMonthPaid ? S.emerald : S.rose}25` }}>
+                                <div>
+                                  <p style={{ margin: 0, color: stats.currentMonthPaid ? S.emerald : S.rose, fontSize: '12px', fontWeight: 700 }}>
+                                    {stats.currentMonthPaid ? '✅ This month\'s EMI paid' : `⏰ EMI due on ${loan.emiDueDay}${['st','nd','rd'][parseInt(loan.emiDueDay)-1]||'th'} — ₹${fmt(stats.emi)}`}
+                                  </p>
+                                  {!stats.currentMonthPaid && stats.daysToNext !== undefined && (
+                                    <p style={{ margin: '2px 0 0', color: S.muted, fontSize: '11px' }}>
+                                      {stats.daysToNext <= 0 ? 'Overdue!' : `In ${stats.daysToNext} day${stats.daysToNext !== 1 ? 's' : ''}`}
+                                    </p>
+                                  )}
+                                </div>
+                                {stats.currentMonthPaid ? (
+                                  <button onClick={() => undoEmiPayment(loan.id, stats.currentMonth)}
+                                    style={{ background: `${S.muted}15`, border: `1px solid ${S.muted}30`, borderRadius: '8px', padding: '5px 12px', color: S.muted, cursor: 'pointer', fontSize: '11px', fontWeight: 600 }}>
+                                    Undo
+                                  </button>
+                                ) : (
+                                  <button onClick={() => markEmiPaid(loan.id, stats.currentMonth, loan.emiAmount)}
+                                    style={{ background: `linear-gradient(135deg, ${S.emerald}, ${S.cyan})`, border: 'none', borderRadius: '8px', padding: '7px 16px', color: '#000', cursor: 'pointer', fontSize: '12px', fontWeight: 700 }}>
+                                    ✓ Mark Paid
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Expanded details */}
+                          {isExpanded && (
+                            <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: `1px solid ${S.border}` }}>
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: '10px', marginBottom: '14px' }}>
+                                {[
+                                  { label: 'Original Loan Amount', value: `₹${fmt(stats.principal)}` },
+                                  { label: 'Total Payable (Principal + Interest)', value: `₹${fmt(stats.totalPayable)}` },
+                                  { label: 'Total Interest', value: `₹${fmt(stats.totalInterest)}`, color: S.rose },
+                                  { label: 'Amount Paid So Far', value: `₹${fmt(stats.paidAmount)}`, color: S.emerald },
+                                  { label: 'Loan Start Date', value: formatDate(loan.startDate) },
+                                  { label: 'EMI Due Date', value: `${loan.emiDueDay}${['st','nd','rd'][parseInt(loan.emiDueDay)-1]||'th'} of every month` },
+                                  { label: 'Total Tenure', value: `${stats.tenure} months (${Math.floor(stats.tenure/12)}y ${stats.tenure%12}m)` },
+                                  { label: 'Remaining Tenure', value: `${stats.remainingEMIs} months` },
+                                ].map(item => (
+                                  <div key={item.label} style={{ background: S.deep, borderRadius: '10px', padding: '10px 14px' }}>
+                                    <p style={{ color: S.muted, fontSize: '10px', letterSpacing: '0.5px', margin: '0 0 3px' }}>{item.label}</p>
+                                    <p style={{ color: item.color || S.text, fontSize: '14px', fontWeight: 600, margin: 0 }}>{item.value}</p>
+                                  </div>
+                                ))}
+                              </div>
+                              {loan.notes && <p style={{ color: S.muted, fontSize: '12px', margin: 0, fontStyle: 'italic' }}>📝 {loan.notes}</p>}
+
+                              {/* Recent payments */}
+                              {loan.payments.length > 0 && (
+                                <div style={{ marginTop: '14px' }}>
+                                  <p style={{ color: S.muted, fontSize: '11px', letterSpacing: '1.5px', textTransform: 'uppercase', margin: '0 0 10px', fontWeight: 700 }}>Recent Payments</p>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '180px', overflowY: 'auto' }}>
+                                    {[...loan.payments].reverse().map(p => (
+                                      <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: `${S.emerald}08`, borderRadius: '8px', border: `1px solid ${S.emerald}15` }}>
+                                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                          <span style={{ color: S.emerald, fontSize: '13px' }}>✓</span>
+                                          <span style={{ color: S.textDim, fontSize: '12px' }}>{new Date(p.month + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}</span>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                          <span style={{ color: S.emerald, fontSize: '13px', fontWeight: 700 }}>₹{fmt(parseFloat(p.amount))}</span>
+                                          <span style={{ color: S.muted, fontSize: '11px' }}>{formatDate(p.date)}</span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── ADD LOAN ── */}
+            {loanSubTab === 'add' && (
+              <div style={{ ...card, border: `1px solid ${S.rose}25` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '24px' }}>
+                  <div style={{ width: '34px', height: '34px', borderRadius: '10px', background: `${S.rose}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>🏦</div>
+                  <p style={{ color: S.rose, fontSize: '12px', letterSpacing: '2px', textTransform: 'uppercase', margin: 0, fontWeight: 700 }}>Add New Loan / EMI</p>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div style={{ gridColumn: '1/-1' }}>
+                    <p style={{ color: S.muted, fontSize: '11px', marginBottom: '6px', letterSpacing: '1px', fontWeight: 600 }}>LOAN LABEL</p>
+                    <input type="text" placeholder="e.g. Home Loan - SBI, Car Loan - HDFC" value={newLoan.name}
+                      onChange={e => setNewLoan(p => ({ ...p, name: e.target.value }))} style={{ ...input }} />
+                  </div>
+                  <div>
+                    <p style={{ color: S.muted, fontSize: '11px', marginBottom: '6px', letterSpacing: '1px', fontWeight: 600 }}>LOAN TYPE</p>
+                    <select value={newLoan.type} onChange={e => setNewLoan(p => ({ ...p, type: e.target.value }))} style={{ ...input }}>
+                      {LOAN_TYPES.map(t => <option key={t.value} value={t.value}>{t.icon} {t.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <p style={{ color: S.muted, fontSize: '11px', marginBottom: '6px', letterSpacing: '1px', fontWeight: 600 }}>BANK / LENDER</p>
+                    <select value={newLoan.bank} onChange={e => setNewLoan(p => ({ ...p, bank: e.target.value }))} style={{ ...input }}>
+                      {BANKS.map(b => <option key={b}>{b}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <p style={{ color: S.muted, fontSize: '11px', marginBottom: '6px', letterSpacing: '1px', fontWeight: 600 }}>LOAN / ACCOUNT NUMBER (last 4 digits)</p>
+                    <input type="text" placeholder="e.g. 1234" maxLength={20} value={newLoan.accountNo}
+                      onChange={e => setNewLoan(p => ({ ...p, accountNo: e.target.value }))} style={{ ...input }} />
+                  </div>
+                  <div>
+                    <p style={{ color: S.muted, fontSize: '11px', marginBottom: '6px', letterSpacing: '1px', fontWeight: 600 }}>TOTAL LOAN AMOUNT (₹)</p>
+                    <input type="number" placeholder="e.g. 2500000" value={newLoan.totalAmount}
+                      onChange={e => setNewLoan(p => ({ ...p, totalAmount: e.target.value }))} style={{ ...input }} />
+                  </div>
+                  <div>
+                    <p style={{ color: S.muted, fontSize: '11px', marginBottom: '6px', letterSpacing: '1px', fontWeight: 600 }}>MONTHLY EMI (₹)</p>
+                    <input type="number" placeholder="e.g. 22000" value={newLoan.emiAmount}
+                      onChange={e => setNewLoan(p => ({ ...p, emiAmount: e.target.value }))} style={{ ...input }} />
+                  </div>
+                  <div>
+                    <p style={{ color: S.muted, fontSize: '11px', marginBottom: '6px', letterSpacing: '1px', fontWeight: 600 }}>INTEREST RATE (% per annum)</p>
+                    <input type="number" placeholder="e.g. 8.5" step="0.01" value={newLoan.interestRate}
+                      onChange={e => setNewLoan(p => ({ ...p, interestRate: e.target.value }))} style={{ ...input }} />
+                  </div>
+                  <div>
+                    <p style={{ color: S.muted, fontSize: '11px', marginBottom: '6px', letterSpacing: '1px', fontWeight: 600 }}>TOTAL TENURE (months)</p>
+                    <input type="number" placeholder="e.g. 240 (20 years)" value={newLoan.tenureMonths}
+                      onChange={e => setNewLoan(p => ({ ...p, tenureMonths: e.target.value }))} style={{ ...input }} />
+                    {newLoan.tenureMonths && <p style={{ color: S.muted, fontSize: '11px', margin: '5px 0 0' }}>= {Math.floor(parseInt(newLoan.tenureMonths)/12)}y {parseInt(newLoan.tenureMonths)%12}m</p>}
+                  </div>
+                  <div>
+                    <p style={{ color: S.muted, fontSize: '11px', marginBottom: '6px', letterSpacing: '1px', fontWeight: 600 }}>LOAN START DATE</p>
+                    <input type="date" value={newLoan.startDate}
+                      onChange={e => setNewLoan(p => ({ ...p, startDate: e.target.value }))} style={{ ...input }} />
+                  </div>
+                  <div>
+                    <p style={{ color: S.muted, fontSize: '11px', marginBottom: '6px', letterSpacing: '1px', fontWeight: 600 }}>EMI DUE DATE (day of month)</p>
+                    <select value={newLoan.emiDueDay} onChange={e => setNewLoan(p => ({ ...p, emiDueDay: e.target.value }))} style={{ ...input }}>
+                      {[1,2,3,4,5,6,7,8,9,10,15,20,25,28].map(d => <option key={d} value={d}>{d}{['st','nd','rd'][d-1]||'th'} of every month</option>)}
+                    </select>
+                  </div>
+                  <div style={{ gridColumn: '1/-1' }}>
+                    <p style={{ color: S.muted, fontSize: '11px', marginBottom: '6px', letterSpacing: '1px', fontWeight: 600 }}>NOTES (optional)</p>
+                    <input type="text" placeholder="e.g. Fixed rate, balloon payment on month 60..." value={newLoan.notes}
+                      onChange={e => setNewLoan(p => ({ ...p, notes: e.target.value }))} style={{ ...input }} />
+                  </div>
+                </div>
+
+                {/* Preview */}
+                {newLoan.totalAmount && newLoan.emiAmount && newLoan.tenureMonths && (
+                  <div style={{ marginTop: '18px', padding: '16px', background: `${S.rose}08`, border: `1px solid ${S.rose}20`, borderRadius: '12px' }}>
+                    <p style={{ color: S.rose, fontSize: '11px', letterSpacing: '1.5px', textTransform: 'uppercase', margin: '0 0 10px', fontWeight: 700 }}>Loan Summary Preview</p>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '10px' }}>
+                      {[
+                        { label: 'Total Payable', value: `₹${fmt(parseFloat(newLoan.emiAmount) * parseInt(newLoan.tenureMonths))}` },
+                        { label: 'Total Interest', value: `₹${fmt(Math.max(0, parseFloat(newLoan.emiAmount) * parseInt(newLoan.tenureMonths) - parseFloat(newLoan.totalAmount)))}`, color: S.rose },
+                        { label: 'Tenure', value: `${Math.floor(parseInt(newLoan.tenureMonths)/12)}y ${parseInt(newLoan.tenureMonths)%12}m` },
+                      ].map(s => (
+                        <div key={s.label}>
+                          <p style={{ color: S.muted, fontSize: '10px', letterSpacing: '1px', margin: '0 0 3px' }}>{s.label}</p>
+                          <p style={{ color: s.color || S.text, fontSize: '14px', fontWeight: 700, margin: 0 }}>{s.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <button onClick={addLoan}
+                  disabled={!newLoan.name.trim() || !newLoan.totalAmount || !newLoan.emiAmount || !newLoan.tenureMonths}
+                  style={{ marginTop: '20px', background: (!newLoan.name.trim() || !newLoan.totalAmount || !newLoan.emiAmount || !newLoan.tenureMonths) ? S.faint : `linear-gradient(135deg, ${S.rose}, ${S.pink})`, color: '#fff', border: 'none', borderRadius: '12px', padding: '13px 24px', fontWeight: 700, cursor: 'pointer', fontSize: '14px', width: '100%', opacity: (!newLoan.name.trim() || !newLoan.totalAmount || !newLoan.emiAmount || !newLoan.tenureMonths) ? 0.5 : 1 }}>
+                  Save Loan
+                </button>
+              </div>
+            )}
+
+            {/* ── PAYMENT HISTORY ── */}
+            {loanSubTab === 'payments' && (
+              <div>
+                {loans.length === 0 ? (
+                  <p style={{ color: S.muted, textAlign: 'center', padding: '60px 0' }}>No loans added yet.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    {loans.map(loan => {
+                      const lt = LOAN_TYPES.find(t => t.value === loan.type);
+                      const lc = lt?.color || S.rose;
+                      const stats = getLoanStats(loan);
+                      return (
+                        <div key={loan.id} style={{ ...card, borderLeft: `4px solid ${lc}` }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <span style={{ fontSize: '20px' }}>{lt?.icon}</span>
+                              <div>
+                                <p style={{ color: S.text, fontWeight: 700, fontSize: '14px', margin: 0 }}>{loan.name}</p>
+                                <p style={{ color: S.muted, fontSize: '11px', margin: '2px 0 0' }}>{loan.bank} · {stats.paidCount} payments · ₹{fmt(stats.paidAmount)} paid</p>
+                              </div>
+                            </div>
+                            {!stats.currentMonthPaid && stats.remainingEMIs > 0 && (
+                              <button onClick={() => markEmiPaid(loan.id, stats.currentMonth, loan.emiAmount)}
+                                style={{ background: `linear-gradient(135deg, ${S.emerald}, ${S.cyan})`, border: 'none', borderRadius: '8px', padding: '7px 16px', color: '#000', cursor: 'pointer', fontSize: '12px', fontWeight: 700 }}>
+                                ✓ Pay This Month
+                              </button>
+                            )}
+                          </div>
+                          {loan.payments.length === 0 ? (
+                            <p style={{ color: S.muted, fontSize: '12px', margin: 0 }}>No payments recorded yet.</p>
+                          ) : (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '6px' }}>
+                              {[...loan.payments].reverse().map(p => (
+                                <div key={p.id} style={{ background: `${S.emerald}08`, border: `1px solid ${S.emerald}18`, borderRadius: '8px', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <div>
+                                    <p style={{ color: S.textDim, fontSize: '12px', fontWeight: 600, margin: '0 0 2px' }}>{new Date(p.month+'-01').toLocaleDateString('en-IN',{month:'short',year:'numeric'})}</p>
+                                    <p style={{ color: S.emerald, fontSize: '13px', fontWeight: 700, margin: 0 }}>₹{fmt(parseFloat(p.amount))}</p>
+                                  </div>
+                                  <button onClick={() => undoEmiPayment(loan.id, p.month)}
+                                    style={{ background: 'none', border: 'none', color: S.muted, cursor: 'pointer', fontSize: '14px', padding: 0 }}>×</button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </div>
